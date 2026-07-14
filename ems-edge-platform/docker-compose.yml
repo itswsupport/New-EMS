@@ -91,17 +91,27 @@ services:
     secrets:
       - database_url
     ports:
-      # Bind IPs are variables, NOT overridden in an overlay: Compose MERGES
-      # `ports` lists by appending, so an overlay that re-declares a port would
-      # add a second, conflicting binding rather than replace the first.
-      # Gateway listener — must stay reachable on the LAN (the X5050 dials in).
-      - "${GATEWAY_BIND_IP:-0.0.0.0}:${GATEWAY_LISTEN_PORT:-4196}:4196"
-      # HTTP API / Prometheus — default to loopback ONLY (it exposes /config).
-      - "${API_BIND_IP:-127.0.0.1}:${API_PORT:-8080}:8080"
+      # HOST_IP : HOST_PORT : CONTAINER_PORT
+      #
+      # The container port MUST equal the port the app actually listens on
+      # (GATEWAY_LISTEN_PORT / API_PORT), or traffic is mapped to a dead port.
+      # The HOST port is a separate knob (*_HOST_PORT) so you can dodge a
+      # conflict with another service on the host without reconfiguring the app.
+      #
+      # Bind IPs live here (not in an overlay) because Compose MERGES `ports`
+      # by appending — an overlay re-declaring a port adds a second, colliding
+      # binding instead of replacing the first.
+      #
+      # Gateway listener: must stay reachable on the LAN (the X5050 dials in).
+      # Restrict the SOURCE IP at the firewall, not here.
+      - "${GATEWAY_BIND_IP:-0.0.0.0}:${GATEWAY_HOST_PORT:-4196}:${GATEWAY_LISTEN_PORT:-4196}"
+      # HTTP API / Prometheus: loopback ONLY by default (it exposes /config).
+      - "${API_BIND_IP:-127.0.0.1}:${API_HOST_PORT:-8080}:${API_PORT:-8080}"
     networks:
       - ems-net
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      # Probes the IN-CONTAINER port, so it must track API_PORT (not the host port).
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:${API_PORT:-8080}/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 30s
       timeout: 10s
       retries: 3
