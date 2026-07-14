@@ -3,14 +3,16 @@
 #
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# What it changes vs. the dev stack:
-#   • The HTTP API is bound to LOOPBACK only. It exposes /config and /statistics
-#     and must never be reachable from the plant LAN. Scrape it locally or via a
-#     reverse proxy / VPN.
-#   • The Modbus listener stays open on the LAN (the X5050 must dial in) — lock
-#     it to the gateway's IP with the host firewall (see docs/server-setup.md).
-#   • restart: always — survives reboots and daemon restarts.
-#   • Postgres publishes NO ports at all: it is reachable only on ems-net.
+# NOTE ON PORTS: this file deliberately declares NO `ports:`. Compose MERGES
+# port lists by appending, so re-declaring a port here would create a SECOND
+# binding (e.g. 0.0.0.0:8080 *and* 127.0.0.1:8080) — they collide, and the
+# insecure 0.0.0.0 binding survives. Bind addresses are controlled by
+# GATEWAY_BIND_IP / API_BIND_IP in .env instead, which cannot merge wrongly.
+#
+# What this overlay changes vs. the dev stack:
+#   • restart: always — survives reboots and daemon restarts
+#   • production log rotation
+#   • Postgres publishes NO ports (reachable only on ems-net)
 # =============================================================================
 
 services:
@@ -25,12 +27,6 @@ services:
 
   app:
     restart: always
-    ports:
-      # Gateway TCP listener — MUST be reachable from the X5050 on the OT subnet.
-      # Restrict the source IP at the firewall, not here.
-      - "4196:4196"
-      # HTTP API — loopback ONLY. Reach it via SSH tunnel or a reverse proxy.
-      - "127.0.0.1:8080:8080"
     environment:
       NODE_ENV: production
       LOG_LEVEL: info

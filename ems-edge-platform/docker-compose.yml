@@ -91,8 +91,13 @@ services:
     secrets:
       - database_url
     ports:
-      - "${GATEWAY_LISTEN_PORT:-4196}:4196"   # gateway TCP listener (X5050 dials in)
-      - "${API_PORT:-8080}:8080"              # HTTP API / Prometheus metrics
+      # Bind IPs are variables, NOT overridden in an overlay: Compose MERGES
+      # `ports` lists by appending, so an overlay that re-declares a port would
+      # add a second, conflicting binding rather than replace the first.
+      # Gateway listener — must stay reachable on the LAN (the X5050 dials in).
+      - "${GATEWAY_BIND_IP:-0.0.0.0}:${GATEWAY_LISTEN_PORT:-4196}:4196"
+      # HTTP API / Prometheus — default to loopback ONLY (it exposes /config).
+      - "${API_BIND_IP:-127.0.0.1}:${API_PORT:-8080}:8080"
     networks:
       - ems-net
     healthcheck:
