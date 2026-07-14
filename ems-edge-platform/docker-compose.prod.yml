@@ -1,0 +1,41 @@
+# =============================================================================
+# Production overlay — apply ON TOP of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# What it changes vs. the dev stack:
+#   • The HTTP API is bound to LOOPBACK only. It exposes /config and /statistics
+#     and must never be reachable from the plant LAN. Scrape it locally or via a
+#     reverse proxy / VPN.
+#   • The Modbus listener stays open on the LAN (the X5050 must dial in) — lock
+#     it to the gateway's IP with the host firewall (see docs/server-setup.md).
+#   • restart: always — survives reboots and daemon restarts.
+#   • Postgres publishes NO ports at all: it is reachable only on ems-net.
+# =============================================================================
+
+services:
+  postgres:
+    restart: always
+    # Explicitly no `ports:` — never expose the database to the network.
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  app:
+    restart: always
+    ports:
+      # Gateway TCP listener — MUST be reachable from the X5050 on the OT subnet.
+      # Restrict the source IP at the firewall, not here.
+      - "4196:4196"
+      # HTTP API — loopback ONLY. Reach it via SSH tunnel or a reverse proxy.
+      - "127.0.0.1:8080:8080"
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"

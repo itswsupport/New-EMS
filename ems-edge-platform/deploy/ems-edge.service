@@ -1,0 +1,31 @@
+# =============================================================================
+# systemd unit — starts the edge stack on boot and stops it cleanly on shutdown.
+#
+# Install:
+#   sudo cp deploy/ems-edge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ems-edge
+#
+# Note: compose's `restart: always` already recovers crashed containers. This
+# unit guarantees the STACK comes up after a host reboot and that `systemctl
+# stop` performs an ordered shutdown (SIGTERM → drain → exit), so no buffered
+# telemetry is lost when the machine is rebooted for maintenance.
+# =============================================================================
+[Unit]
+Description=ems-edge-platform (IIoT edge ingestion)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/ems-edge-platform
+ExecStart=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+# Give the app time to drain its batch queue on SIGTERM (SHUTDOWN_TIMEOUT_MS).
+TimeoutStartSec=0
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
