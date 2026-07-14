@@ -1,0 +1,28 @@
+# -----------------------------------------------------------------------------
+# Runtime state — never commit
+# -----------------------------------------------------------------------------
+logs/
+data/
+
+# -----------------------------------------------------------------------------
+# Secrets & local overrides
+# -----------------------------------------------------------------------------
+# The tracked .env holds only non-secret operational defaults for this repo.
+# Any file with real credentials must NOT be committed.
+.env.local
+.env.*.local
+*.secret
+secrets/
+certs/
+*.pem
+*.key
+*.crt
+
+# -----------------------------------------------------------------------------
+# OS / editor noise
+# -----------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,52 @@
+# =============================================================================
+# Device / Register Map — configuration-driven (NEVER hardcode registers in code)
+#
+# The Modbus parser loads this at boot. Adding a meter or changing a register is
+# a config change + restart — no code change, no redeploy of logic.
+#
+# Meter: Rishabh LM1360. Values are 32-bit IEEE-754 floats across 2 registers,
+# read with Modbus function code 03 (holding registers).
+#
+# `byteOrder` may be overridden globally by MODBUS_BYTE_ORDER env; per-device
+# override wins over both. Cycle ABCD -> CDAB -> DCBA -> BADC during commissioning.
+# =============================================================================
+version: 1
+defaults:
+  functionCode: 3          # read holding registers
+  datatype: float32
+  quantity: 2              # 2 registers per float32
+  byteOrder: ABCD
+
+devices:
+  - id: meter07
+    slave: 7
+    tenant: rucha-engineers
+    plant: plant01
+    registers:
+      voltage:        { address: 0 }
+      current:        { address: 6 }
+      active_power:   { address: 52 }
+      frequency:      { address: 70 }
+      active_energy:  { address: 72 }
+
+  - id: meter10
+    slave: 10
+    tenant: rucha-engineers
+    plant: plant01
+    registers:
+      voltage:        { address: 0 }
+      current:        { address: 6 }
+      active_power:   { address: 52 }
+      frequency:      { address: 70 }
+      active_energy:  { address: 72 }
+
+  - id: meter11
+    slave: 11
+    tenant: rucha-engineers
+    plant: plant01
+    registers:
+      voltage:        { address: 0 }
+      current:        { address: 6 }
+      active_power:   { address: 52 }
+      frequency:      { address: 70 }
+      active_energy:  { address: 72 }

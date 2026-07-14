@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Env & secrets — NEVER commit real values
+.env
+.env.local
+.env.*.local
+secrets/
+*.pem
+*.key
+
+# Prisma generated client
+packages/database/src/generated/
+
+# Test / coverage
+coverage/
+.vitest/
+
+# Logs & runtime
+logs/
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

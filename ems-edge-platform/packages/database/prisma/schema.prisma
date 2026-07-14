@@ -1,0 +1,49 @@
+// =============================================================================
+// Prisma schema — native PostgreSQL (Prisma Accelerate intentionally NOT used).
+//
+// SCOPE NOTE: Prisma manages `energy_telemetry` (the hot ingestion path, where
+// typed batch inserts matter). The pgvector extension and `plant_knowledge_base`
+// table are provisioned by SQL migrations with a CONFIGURABLE dimension
+// (${PG_VECTOR_DIMENSION}) — see packages/database/prisma/sql/ — because Prisma
+// cannot parametrize a vector(N) dimension. The knowledge base is read/written
+// via typed $queryRaw in KnowledgeRepository. This keeps dimension out of code.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Time-series energy measurements. One row per meter per poll cycle.
+/// For very high volume, convert to a native time-partitioned / hypertable —
+/// see docs/scaling.md. Indexes below cover the three primary query axes.
+model EnergyTelemetry {
+  id             BigInt   @id @default(autoincrement())
+  deviceId       String   @map("device_id")
+  tenantId       String   @map("tenant_id")
+  plantId        String   @map("plant_id")
+  timestamp      DateTime @db.Timestamptz(6)
+
+  voltage        Float?
+  current        Float?
+  frequency      Float?
+  powerFactor    Float?   @map("power_factor")
+  activePower    Float?   @map("active_power")
+  reactivePower  Float?   @map("reactive_power")
+  apparentPower  Float?   @map("apparent_power")
+  activeEnergy   Float?   @map("active_energy")
+  reactiveEnergy Float?   @map("reactive_energy")
+  thd            Float?
+
+  quality        String   @db.VarChar(16)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([deviceId, timestamp], name: "idx_telemetry_device_ts")
+  @@index([tenantId, timestamp], name: "idx_telemetry_tenant_ts")
+  @@index([plantId, timestamp], name: "idx_telemetry_plant_ts")
+  @@map("energy_telemetry")
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "types": ["node"],
+
+    // --- Strictness: "No 'any'. Strong typing everywhere." ---
+    "strict": true,
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+
+    "declaration": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+
+    // --- Hexagonal module boundaries via path aliases ---
+    "baseUrl": ".",
+    "paths": {
+      "@ems/common": ["packages/common/src/index.ts"],
+      "@ems/config": ["packages/config/src/index.ts"],
+      "@ems/logger": ["packages/logger/src/index.ts"],
+      "@ems/modbus": ["packages/modbus/src/index.ts"],
+      "@ems/telemetry": ["packages/telemetry/src/index.ts"],
+      "@ems/queue": ["packages/queue/src/index.ts"],
+      "@ems/database": ["packages/database/src/index.ts"],
+      "@ems/observability": ["packages/observability/src/index.ts"],
+      "@ems/gateway-listener": ["apps/gateway-listener/src/index.ts"],
+      "@ems/api": ["apps/api/src/index.ts"]
+    }
+  }
+}

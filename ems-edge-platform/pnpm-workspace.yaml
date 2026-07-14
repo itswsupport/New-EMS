@@ -1,0 +1,6 @@
+# pnpm workspace — modular monorepo.
+# packages/* are pure, framework-light domain/infra libraries (hexagonal "core").
+# apps/*     are deployable composition roots (transport, api, wiring).
+packages:
+  - "packages/*"
+  - "apps/*"

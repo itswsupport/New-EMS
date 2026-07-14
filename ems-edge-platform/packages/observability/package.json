@@ -1,0 +1,11 @@
+{
+  "name": "@ems/observability",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "prom-client": "^15.1.3"
+  }
+}

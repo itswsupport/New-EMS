@@ -1,0 +1,12 @@
+{
+  "name": "@ems/telemetry",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "@ems/common": "workspace:*",
+    "zod": "^3.23.8"
+  }
+}

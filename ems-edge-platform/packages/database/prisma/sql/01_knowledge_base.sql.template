@@ -1,0 +1,26 @@
+-- =============================================================================
+-- pgvector extension + AI knowledge base. Applied by scripts/migrate.sh, which
+-- substitutes ${PG_VECTOR_DIMENSION} via envsubst so the embedding dimension is
+-- CONFIGURATION, never hardcoded. Idempotent — safe to run on every deploy.
+-- =============================================================================
+
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS plant_knowledge_base (
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    tenant_id      TEXT        NOT NULL,
+    document_title TEXT        NOT NULL,
+    content_chunk  TEXT        NOT NULL,
+    metadata       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    embedding      vector(${PG_VECTOR_DIMENSION}),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Tenant isolation for RAG retrieval.
+CREATE INDEX IF NOT EXISTS idx_kb_tenant ON plant_knowledge_base (tenant_id);
+
+-- ANN index for cosine similarity search. HNSW = high recall, no training step.
+-- Created only once the extension/table exist; safe to re-run.
+CREATE INDEX IF NOT EXISTS idx_kb_embedding_hnsw
+    ON plant_knowledge_base
+    USING hnsw (embedding vector_cosine_ops);

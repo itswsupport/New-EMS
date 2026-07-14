@@ -1,0 +1,18 @@
+{
+  "name": "@ems/ingestion-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.ts",
+  "dependencies": {
+    "@ems/api": "workspace:*",
+    "@ems/common": "workspace:*",
+    "@ems/config": "workspace:*",
+    "@ems/database": "workspace:*",
+    "@ems/gateway-listener": "workspace:*",
+    "@ems/logger": "workspace:*",
+    "@ems/observability": "workspace:*",
+    "@ems/queue": "workspace:*",
+    "@ems/telemetry": "workspace:*"
+  }
+}

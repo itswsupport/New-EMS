@@ -1,0 +1,81 @@
+# =============================================================================
+# ems-edge — Industrial IoT Edge Node
+# Reads Modbus TCP energy-meter data from a SenseLive X5050 gateway,
+# converts it to JSON (Telegraf) and publishes to a local MQTT broker.
+# =============================================================================
+version: "3.9"
+
+# -----------------------------------------------------------------------------
+# Custom bridge network — isolates edge services and gives them stable DNS
+# names (telegraf reaches the broker as "mosquitto").
+# -----------------------------------------------------------------------------
+networks:
+  ems-net:
+    name: ems-net
+    driver: bridge
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # MQTT Broker
+  # ---------------------------------------------------------------------------
+  mosquitto:
+    image: ${MOSQUITTO_IMAGE:-eclipse-mosquitto:2.0}
+    container_name: ems-mosquitto
+    hostname: mosquitto
+    restart: unless-stopped
+    ports:
+      # host:container — host port comes from .env so multiple stacks can coexist
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./configs/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./data/mosquitto:/mosquitto/data
+      - ./logs/mosquitto:/mosquitto/log
+    networks:
+      - ems-net
+    healthcheck:
+      # Subscribe to the broker's own $SYS tree; succeed if 1 msg arrives.
+      # $$ escapes compose interpolation so the container sees a literal $.
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # Telegraf — Modbus collector → MQTT publisher
+  # ---------------------------------------------------------------------------
+  telegraf:
+    image: ${TELEGRAF_IMAGE:-telegraf:1.30}
+    container_name: ems-telegraf
+    hostname: telegraf
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    # env_file makes every var available for ${VAR} substitution inside
+    # telegraf.conf at load time.
+    env_file:
+      - .env
+    volumes:
+      - ./configs/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - ./logs/telegraf:/var/log/telegraf
+    networks:
+      - ems-net
+    healthcheck:
+      # `telegraf --test` dry-runs one collection cycle without publishing.
+      test: ["CMD-SHELL", "telegraf --config /etc/telegraf/telegraf.conf --test --once >/dev/null 2>&1 || exit 1"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"

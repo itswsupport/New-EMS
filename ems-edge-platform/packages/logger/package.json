@@ -1,0 +1,11 @@
+{
+  "name": "@ems/logger",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "pino": "^9.4.0"
+  }
+}
