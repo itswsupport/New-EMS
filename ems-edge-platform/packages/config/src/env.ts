@@ -20,7 +20,28 @@ function resolveSecretFiles(raw: NodeJS.ProcessEnv): Record<string, string> {
     if (value === undefined) continue;
     if (key.endsWith("_FILE")) {
       const target = key.slice(0, -"_FILE".length);
-      fromFiles[target] = readFileSync(value, "utf8").trim();
+      try {
+        fromFiles[target] = readFileSync(value, "utf8").trim();
+      } catch (cause) {
+        const e = cause as NodeJS.ErrnoException;
+        // The container runs as non-root (uid 1000). Compose bind-mounts file
+        // secrets preserving HOST ownership/mode, so a root-owned 0600 secret is
+        // unreadable in here. This is the single most common deploy failure, so
+        // say exactly how to fix it rather than leaking a bare EACCES.
+        const hint =
+          e.code === "EACCES"
+            ? ` — the secret is not readable by the container's non-root user.` +
+              ` Fix on the host: chmod 0444 on the secret file (and chmod 0700 on` +
+              ` the secrets/ directory to keep other host users out).`
+            : e.code === "ENOENT"
+              ? " — file not found; check the secret is declared in docker-compose.yml."
+              : "";
+        throw new DomainError(
+          "CONFIG_ERROR",
+          `Cannot read secret for ${target} from ${value}${hint}`,
+          { code: e.code ?? "UNKNOWN" },
+        );
+      }
     } else {
       out[key] = value;
     }

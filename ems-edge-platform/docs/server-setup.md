@@ -117,8 +117,23 @@ printf '%s' "$PW" > secrets/db_password.txt
 printf 'postgresql://ems:%s@postgres:5432/ems?schema=public&connection_limit=10' "$PW" \
   > secrets/database_url.txt
 
-chmod 600 secrets/*.txt
+# PERMISSIONS MATTER — read this before changing them.
+chmod 0700 secrets          # host: only root can even enter the directory
+chmod 0444 secrets/*.txt    # container: readable by the non-root app user
 ```
+
+> ### ⚠️ Why `0444` and not `0600`
+> The app container runs as the **non-root `node` user (uid 1000)** and Postgres
+> runs as `postgres` (uid 999). Compose bind-mounts file secrets into the
+> container **preserving the host's ownership and mode**. A root-owned `0600`
+> secret is therefore *unreadable inside the container*, and the app crash-loops
+> with `EACCES: permission denied, open '/run/secrets/database_url'`.
+>
+> The security boundary is the **directory**, not the file: `secrets/` at `0700`
+> root-owned means no other host user can traverse into it, while the Docker
+> daemon (root) can still mount the file in. That gives you both a readable
+> secret inside the container and a protected one on the host.
+
 > The DB host is **`postgres`** (the compose service name), *not* `localhost` —
 > the app reaches it over the internal `ems-net` network.
 
@@ -235,5 +250,8 @@ Automate with Ansible once site #2 is proven by hand.
 | Voltage absurd / NaN | wrong byte order | cycle `MODBUS_BYTE_ORDER` (Step 9) |
 | `crcErrors` climbing | serial noise, wrong baud, no termination | verify 9600 8N1 on gateway; 120Ω at both bus ends |
 | `quality=UNCERTAIN` | read timeouts on some registers | raise `MODBUS_TIMEOUT_MS` / `MODBUS_MAX_RETRIES` |
+| `ems-app` crash-loops, `EACCES ... /run/secrets/...` | secret is root-owned `0600`; container runs as non-root | `chmod 0444 secrets/*.txt` + `chmod 0700 secrets` (see Step 6) |
+| App can't reach DB but Postgres is healthy | `.env` `DATABASE_URL` points at `localhost` | the mounted `DATABASE_URL_FILE` secret overrides it — check it says `@postgres:5432`, not `@localhost` |
+| Port already allocated | another service on the host owns it (e.g. Jenkins on 8080) | set `API_HOST_PORT=8081` — the container port is unchanged |
 | `/ready` → `database:false` | DB down or bad secret | `docker compose logs postgres`; re-check `secrets/database_url.txt` |
 | Stack gone after reboot | systemd unit not enabled | `sudo systemctl enable --now ems-edge` |
