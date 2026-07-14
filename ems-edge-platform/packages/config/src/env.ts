@@ -3,24 +3,30 @@ import { DomainError } from "@ems/common";
 import { envSchema, type AppEnv } from "./env.schema.js";
 
 /**
- * Resolve Docker-secret indirection: for any KEY, if KEY is unset but KEY_FILE
- * points at a readable file, load the trimmed file contents as KEY. This lets
- * `DATABASE_URL_FILE=/run/secrets/db_url` work with zero code elsewhere.
+ * Resolve Docker-secret indirection: for any KEY, `KEY_FILE=/run/secrets/x`
+ * loads the trimmed file contents as KEY.
+ *
+ * PRECEDENCE: a mounted secret file WINS over a plain env value of the same key.
+ * This is deliberate — in Docker the app inherits a developer-oriented `.env`
+ * (e.g. DATABASE_URL pointing at localhost), and the mounted secret must
+ * override it with the real in-network URL + password. An explicitly mounted
+ * secret is always the more specific, more trustworthy source.
  */
 function resolveSecretFiles(raw: NodeJS.ProcessEnv): Record<string, string> {
   const out: Record<string, string> = {};
+  const fromFiles: Record<string, string> = {};
+
   for (const [key, value] of Object.entries(raw)) {
     if (value === undefined) continue;
     if (key.endsWith("_FILE")) {
       const target = key.slice(0, -"_FILE".length);
-      if (raw[target] === undefined) {
-        out[target] = readFileSync(value, "utf8").trim();
-      }
+      fromFiles[target] = readFileSync(value, "utf8").trim();
     } else {
       out[key] = value;
     }
   }
-  return out;
+  // Secret files applied last so they override any plain env of the same name.
+  return { ...out, ...fromFiles };
 }
 
 let cached: AppEnv | undefined;

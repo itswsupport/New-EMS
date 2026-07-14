@@ -1,34 +1,41 @@
 # =============================================================================
 # Multi-stage Dockerfile — ems-edge-platform
-# Stage 1 (deps)    : install ALL workspace deps (cached on lockfile change)
-# Stage 2 (build)   : generate Prisma client + typecheck (fail build on type error)
-# Stage 3 (runtime) : slim image, non-root, prod deps only, runs via tsx
+# Stage 0 (base)    : node + OpenSSL (Prisma's engines REQUIRE libssl; the slim
+#                     image ships without it and Prisma fails at runtime)
+# Stage 1 (deps)    : install workspace deps (cached on lockfile change)
+# Stage 2 (build)   : generate Prisma client + typecheck (type error = failed build)
+# Stage 3 (runtime) : slim, non-root, runs via tsx
 # =============================================================================
 
-# ---- Stage 1: dependencies --------------------------------------------------
-FROM node:22-bookworm-slim AS deps
-WORKDIR /app
+# ---- Stage 0: base image with OpenSSL ---------------------------------------
+FROM node:22-bookworm-slim AS base
+# Prisma needs libssl/openssl; ca-certificates for TLS to managed Postgres.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml* .npmrc ./
+WORKDIR /app
+
+# ---- Stage 1: dependencies --------------------------------------------------
+FROM base AS deps
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml .npmrc ./
 # Copy every workspace manifest so pnpm can resolve the graph before sources.
 COPY packages/ ./packages/
 COPY apps/ ./apps/
-RUN pnpm install --frozen-lockfile || pnpm install
+# Strict: a stale lockfile must FAIL the build, never silently re-resolve.
+RUN pnpm install --frozen-lockfile
 
 # ---- Stage 2: build / verify ------------------------------------------------
 FROM deps AS build
-WORKDIR /app
 COPY . .
 # Generate the typed Prisma client, then typecheck the whole repo.
 RUN pnpm prisma:generate && pnpm typecheck
 
 # ---- Stage 3: runtime -------------------------------------------------------
-FROM node:22-bookworm-slim AS runtime
+FROM base AS runtime
 ENV NODE_ENV=production
-WORKDIR /app
-RUN corepack enable
 
-# Copy resolved node_modules (incl. generated Prisma client) and sources.
+# Resolved node_modules (incl. generated Prisma client) + sources.
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps ./apps

@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # =============================================================================
 # migrate.sh — idempotent schema provisioning, run by the `migrate` compose job.
-#   1) inject the DB password from a Docker secret (if present)
-#   2) prisma migrate deploy      -> energy_telemetry + indexes
-#   3) apply-sql.ts               -> pgvector ext + plant_knowledge_base (dim cfg)
+#   1) resolve DATABASE_URL from the mounted secret (DATABASE_URL_FILE)
+#   2) prisma migrate deploy  -> energy_telemetry + indexes
+#   3) apply-sql.ts           -> pgvector ext + plant_knowledge_base (configurable dim)
+#
+# Safe to run on every deploy: both steps are idempotent.
 # =============================================================================
 set -euo pipefail
 
-# Substitute the __PW__ placeholder with the mounted secret, if provided.
-if [[ -f /run/secrets/db_password && -n "${DATABASE_URL:-}" ]]; then
-  PW="$(cat /run/secrets/db_password)"
-  export DATABASE_URL="${DATABASE_URL//__PW__/$PW}"
+# The Prisma CLI reads DATABASE_URL from the environment, so hydrate it from the
+# secret file here (the app itself does this natively via packages/config).
+if [[ -n "${DATABASE_URL_FILE:-}" && -f "${DATABASE_URL_FILE}" ]]; then
+  DATABASE_URL="$(cat "${DATABASE_URL_FILE}")"
+  export DATABASE_URL
 fi
 
-: "${DATABASE_URL:?DATABASE_URL must be set}"
+: "${DATABASE_URL:?DATABASE_URL (or DATABASE_URL_FILE) must be set}"
 export PG_VECTOR_DIMENSION="${PG_VECTOR_DIMENSION:-1536}"
 
 echo "[migrate] generating Prisma client..."

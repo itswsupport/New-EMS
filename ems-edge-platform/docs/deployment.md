@@ -18,11 +18,20 @@ app      (TCP :4196 + API :8080, non-root, resource limits, healthcheck)
 ## First deploy
 ```bash
 cp .env.example .env
-mkdir -p secrets && printf 'a-strong-password' > secrets/db_password.txt
+
+# Two secrets, never committed (secrets/* is gitignored except *.example):
+PW='a-strong-password'
+printf '%s' "$PW" > secrets/db_password.txt
+printf 'postgresql://ems:%s@postgres:5432/ems?schema=public&connection_limit=10' "$PW" \
+  > secrets/database_url.txt
+
 docker compose up -d --build
 docker compose logs -f migrate     # watch schema + pgvector provisioning
 ./scripts/healthcheck.sh
 ```
+
+> **Host is `postgres`, not `localhost`,** in `database_url.txt` — the app resolves
+> the DB by its compose service name on the `ems-net` network.
 
 ## Automatic schema migration
 The `migrate` job runs on every `up`:

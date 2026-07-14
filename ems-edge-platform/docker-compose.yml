@@ -1,9 +1,12 @@
 # =============================================================================
-# ems-edge-platform — local/edge deployment
-#   postgres  : PostgreSQL 16 + pgvector (persistent volume)
-#   migrate   : one-shot; applies Prisma migrations + pgvector SQL, then exits
-#   app       : the ingestion platform (TCP listener :4196, HTTP API :8080)
-# Secrets are supplied via Docker Secrets (see ./secrets/*), NOT env literals.
+# ems-edge-platform — deployment stack
+#   postgres  : PostgreSQL 16 + pgvector (persistent volume, healthcheck)
+#   migrate   : one-shot; prisma migrate deploy + pgvector SQL, then exits
+#   app       : ingestion platform (gateway TCP listener :4196, HTTP API :8080)
+#
+# SECRETS: no credential is ever placed in an environment literal or baked into
+# the image. Postgres reads POSTGRES_PASSWORD_FILE; the app reads
+# DATABASE_URL_FILE (handled natively by packages/config -> resolveSecretFiles).
 # =============================================================================
 name: ems-edge-platform
 
@@ -19,6 +22,8 @@ volumes:
 secrets:
   db_password:
     file: ./secrets/db_password.txt
+  database_url:
+    file: ./secrets/database_url.txt
 
 services:
   postgres:
@@ -37,17 +42,17 @@ services:
       - ems-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ems} -d ${POSTGRES_DB:-ems}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 10
-      start_period: 15s
+      retries: 12
+      start_period: 10s
     deploy:
       resources:
         limits:
           cpus: "2.0"
           memory: 2g
 
-  # One-shot migration job: builds the app image, runs schema + pgvector setup.
+  # One-shot schema provisioning. `app` will not start until this exits 0.
   migrate:
     build:
       context: .
@@ -57,10 +62,10 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ems}:__PW__@postgres:5432/${POSTGRES_DB:-ems}?schema=public
+      DATABASE_URL_FILE: /run/secrets/database_url
       PG_VECTOR_DIMENSION: ${PG_VECTOR_DIMENSION:-1536}
     secrets:
-      - db_password
+      - database_url
     entrypoint: ["bash", "scripts/migrate.sh"]
     networks:
       - ems-net
@@ -80,15 +85,14 @@ services:
     env_file:
       - .env
     environment:
-      # Host is the compose service name; password injected from the secret.
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ems}:__PW__@postgres:5432/${POSTGRES_DB:-ems}?schema=public&connection_limit=10
+      # Overrides the .env value: inside the network the DB is `postgres`, and the
+      # URL (with password) comes from a mounted secret, never from the environment.
+      DATABASE_URL_FILE: /run/secrets/database_url
     secrets:
-      - db_password
-    # Rewrite __PW__ with the mounted secret at container start (no secret in env/image).
-    entrypoint: ["/bin/sh", "-c", "export DATABASE_URL=$(echo \"$$DATABASE_URL\" | sed \"s/__PW__/$$(cat /run/secrets/db_password)/\"); exec node --import tsx apps/ingestion-service/src/main.ts"]
+      - database_url
     ports:
-      - "${GATEWAY_LISTEN_PORT:-4196}:4196"   # gateway TCP listener
-      - "${API_PORT:-8080}:8080"              # HTTP API / metrics
+      - "${GATEWAY_LISTEN_PORT:-4196}:4196"   # gateway TCP listener (X5050 dials in)
+      - "${API_PORT:-8080}:8080"              # HTTP API / Prometheus metrics
     networks:
       - ems-net
     healthcheck:

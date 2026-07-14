@@ -7,11 +7,13 @@ dist/
 build/
 *.tsbuildinfo
 
-# Env & secrets — NEVER commit real values
+# Env & secrets — NEVER commit real values.
+# secrets/ is ignored EXCEPT the *.example templates, which document the shape.
 .env
 .env.local
 .env.*.local
-secrets/
+secrets/*
+!secrets/*.example
 *.pem
 *.key
 
