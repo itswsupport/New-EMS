@@ -4,6 +4,7 @@ import type { PipelineHooks, Transactor } from "@ems/gateway-listener";
 import type { ResolvedDevice } from "@ems/config";
 import type { TelemetryRecord } from "@ems/telemetry";
 import { createLogger } from "@ems/logger";
+import { createModbusCodec } from "@ems/modbus";
 import { buildFloatResponse } from "../helpers/modbus-frame.js";
 
 const log = createLogger({ level: "silent", service: "test" });
@@ -37,7 +38,7 @@ describe("DevicePoller (transport-isolated end-to-end decode)", () => {
     const produced: TelemetryRecord[] = [];
     const transactor = new FakeTransactor({ 0: 230.5, 6: 4.2 });
     const poller = new DevicePoller(
-      transactor, [device],
+      transactor, createModbusCodec("rtu"), [device],
       async (r: TelemetryRecord) => void produced.push(r),
       noopHooks, log,
       { intervalMs: 10_000, timeoutMs: 500, maxRetries: 1 },

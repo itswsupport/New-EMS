@@ -31,7 +31,7 @@ describe("GatewayServer TCP listener (client-initiated, like the X5050)", () => 
 
     server = new GatewayServer(
       { host: "127.0.0.1", port, maxConnections: 4, connectionTimeoutMs: 5000,
-        rateLimitPerMin: 100, intervalMs: 10_000, timeoutMs: 1000, maxRetries: 1 },
+        rateLimitPerMin: 100, intervalMs: 10_000, timeoutMs: 1000, maxRetries: 1, framing: "rtu" },
       { devices: [device], sink: async (r: TelemetryRecord) => void produced.push(r), hooks: noopHooks, log,
         onOpen: () => {}, onClose: () => {} },
     );

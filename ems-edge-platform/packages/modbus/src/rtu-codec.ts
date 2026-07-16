@@ -7,6 +7,7 @@ import {
   err,
 } from "@ems/common";
 import { appendCrc, verifyCrc } from "./crc16.js";
+import type { ModbusCodec, ParsedResponse } from "./codec.js";
 
 /**
  * Modbus RTU framing (over TCP, because the X5050 forwards RTU bytes transparently).
@@ -38,11 +39,6 @@ export function buildReadHoldingRequest(
 export function expectedReadResponseLength(quantity: number): number {
   // slave(1) + fc(1) + byteCount(1) + data(2*qty) + crc(2)
   return 5 + 2 * quantity;
-}
-
-export interface ParsedResponse {
-  readonly slave: number;
-  readonly data: Uint8Array; // register payload only (byteCount bytes)
 }
 
 /**
@@ -85,4 +81,24 @@ export function parseReadResponse(
   }
 
   return ok({ slave, data: frame.subarray(dataStart, dataEnd) });
+}
+
+/**
+ * RTU-over-TCP codec — for a gateway in TRANSPARENT passthrough mode, where we
+ * own the RTU frame and its CRC16. Stateless.
+ */
+export class ModbusRtuCodec implements ModbusCodec {
+  readonly framing = "rtu" as const;
+
+  buildReadHoldingRequest(slave: number, address: number, quantity: number): Uint8Array {
+    return buildReadHoldingRequest(slave, address, quantity);
+  }
+
+  expectedReadResponseLength(quantity: number): number {
+    return expectedReadResponseLength(quantity);
+  }
+
+  parseReadResponse(frame: Uint8Array, expectedSlave: number): Result<ParsedResponse, DomainError> {
+    return parseReadResponse(frame, expectedSlave);
+  }
 }

@@ -36,6 +36,9 @@ export const envSchema = z.object({
   MODBUS_TIMEOUT_MS: int(3000, 100),
   MODBUS_MAX_RETRIES: int(2, 0),
   MODBUS_BYTE_ORDER: z.enum(["ABCD", "BADC", "CDAB", "DCBA"]).default("ABCD"),
+  // "tcp" = Modbus TCP/MBAP (gateway in "Modbus TCP to RTU" conversion mode);
+  // "rtu" = transparent RTU-over-TCP passthrough. See docs/architecture.md.
+  MODBUS_FRAMING: z.enum(["tcp", "rtu"]).default("tcp"),
 
   // Device map
   DEVICE_CONFIG_PATH: z.string().default("./config/devices.yaml"),

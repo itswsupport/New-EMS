@@ -81,6 +81,7 @@ export function createApp(env: AppEnv): App {
       intervalMs: env.POLL_INTERVAL_MS,
       timeoutMs: env.MODBUS_TIMEOUT_MS,
       maxRetries: env.MODBUS_MAX_RETRIES,
+      framing: env.MODBUS_FRAMING,
     },
     {
       devices,

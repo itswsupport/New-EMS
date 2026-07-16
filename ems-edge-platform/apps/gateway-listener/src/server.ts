@@ -2,6 +2,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { newConnectionId } from "@ems/common";
 import type { ResolvedDevice } from "@ems/config";
 import { withIdentity, type Logger } from "@ems/logger";
+import { createModbusCodec, type ModbusFraming } from "@ems/modbus";
 import { Connection } from "./connection.js";
 import { DevicePoller, type PollerOptions } from "./poller.js";
 import { ConnectionRateLimiter } from "./rate-limiter.js";
@@ -13,6 +14,8 @@ export interface GatewayServerOptions extends PollerOptions {
   readonly maxConnections: number;
   readonly connectionTimeoutMs: number;
   readonly rateLimitPerMin: number;
+  /** Modbus wire framing: "tcp" (MBAP, gateway converts) or "rtu" (transparent). */
+  readonly framing: ModbusFraming;
 }
 
 export interface GatewayServerDeps {
@@ -77,8 +80,10 @@ export class GatewayServer {
     });
 
     const conn = new Connection(socket, connectionId, connLog);
+    // One codec per connection — the TCP codec holds a transaction counter.
     const poller = new DevicePoller(
       conn,
+      createModbusCodec(this.opts.framing),
       this.deps.devices,
       this.deps.sink,
       this.deps.hooks,

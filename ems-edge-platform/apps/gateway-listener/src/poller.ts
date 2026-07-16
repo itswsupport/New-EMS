@@ -1,12 +1,7 @@
 import { CrcError, ModbusExceptionError } from "@ems/common";
 import type { ResolvedDevice } from "@ems/config";
 import type { Logger } from "@ems/logger";
-import {
-  buildReadHoldingRequest,
-  decodeRegisters,
-  expectedReadResponseLength,
-  parseReadResponse,
-} from "@ems/modbus";
+import { decodeRegisters, type ModbusCodec } from "@ems/modbus";
 import { mapReadingsToRecord, validateTelemetry, type MetricReading } from "@ems/telemetry";
 import type { PipelineHooks, TelemetrySink, Transactor } from "./types.js";
 
@@ -32,6 +27,7 @@ export class DevicePoller {
 
   constructor(
     private readonly transactor: Transactor,
+    private readonly codec: ModbusCodec,
     private readonly devices: readonly ResolvedDevice[],
     private readonly sink: TelemetrySink,
     private readonly hooks: PipelineHooks,
@@ -109,13 +105,13 @@ export class DevicePoller {
 
   /** Read one register group with retry; returns payload bytes or null on failure. */
   async #readRegister(slave: number, address: number, quantity: number): Promise<Uint8Array | null> {
-    const request = buildReadHoldingRequest(slave, address, quantity);
-    const expected = expectedReadResponseLength(quantity);
+    const request = this.codec.buildReadHoldingRequest(slave, address, quantity);
+    const expected = this.codec.expectedReadResponseLength(quantity);
 
     for (let attempt = 0; attempt <= this.opts.maxRetries; attempt++) {
       try {
         const frame = await this.transactor.transact(request, expected, this.opts.timeoutMs);
-        const parsed = parseReadResponse(frame, slave);
+        const parsed = this.codec.parseReadResponse(frame, slave);
         if (parsed.ok) {
           return parsed.value.data;
         }
