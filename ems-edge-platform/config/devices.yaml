@@ -1,20 +1,12 @@
 # =============================================================================
-# Device / Register Map — configuration-driven (NEVER hardcode registers in code)
-#
-# The Modbus parser loads this at boot. Adding a meter or changing a register is
-# a config change + restart — no code change, no redeploy of logic.
-#
-# Meter: Rishabh LM1360. Values are 32-bit IEEE-754 floats across 2 registers,
-# read with Modbus function code 03 (holding registers).
-#
-# `byteOrder` may be overridden globally by MODBUS_BYTE_ORDER env; per-device
-# override wins over both. Cycle ABCD -> CDAB -> DCBA -> BADC during commissioning.
+# Device / Register Map — Rishabh LM1360, addresses confirmed by live scan.
+# Config-driven: edit this file + `docker compose restart app` (no rebuild).
 # =============================================================================
 version: 1
 defaults:
-  functionCode: 3          # read holding registers
+  functionCode: 3
   datatype: float32
-  quantity: 2              # 2 registers per float32
+  quantity: 2
   byteOrder: ABCD
 
 devices:
@@ -22,31 +14,41 @@ devices:
     slave: 7
     tenant: rucha-engineers
     plant: plant01
-    registers:
-      voltage:        { address: 0 }
-      current:        { address: 6 }
-      active_power:   { address: 52 }
-      frequency:      { address: 70 }
-      active_energy:  { address: 72 }
-
+    registers: &lm1360
+      # --- system aggregates ---
+      voltage:         { address: 42 }   # system avg L-N voltage
+      current:         { address: 46 }   # system avg current
+      active_power:    { address: 52 }   # total active power (W)
+      apparent_power:  { address: 56 }   # total apparent power (VA)
+      reactive_power:  { address: 58 }   # total reactive power (VAr)
+      power_factor:    { address: 62 }   # system power factor
+      frequency:       { address: 70 }   # Hz
+      active_energy:   { address: 72 }   # import active energy (Wh)  — cost/carbon
+      reactive_energy: { address: 76 }   # inductive reactive energy (VArh) — PF penalty
+      # --- per-phase voltage / current (imbalance detection) ---
+      voltage_l1:      { address: 0 }
+      voltage_l2:      { address: 2 }
+      voltage_l3:      { address: 4 }
+      current_l1:      { address: 6 }
+      current_l2:      { address: 8 }
+      current_l3:      { address: 10 }
+      # --- per-phase active power / power factor ---
+      active_power_l1: { address: 12 }
+      active_power_l2: { address: 14 }
+      active_power_l3: { address: 16 }
+      power_factor_l1: { address: 30 }
+      power_factor_l2: { address: 32 }
+      power_factor_l3: { address: 34 }
+      # --- power quality (harmonic distortion) ---
+      voltage_thd:     { address: 218 }
+      current_thd:     { address: 220 }
   - id: meter10
     slave: 10
     tenant: rucha-engineers
     plant: plant01
-    registers:
-      voltage:        { address: 0 }
-      current:        { address: 6 }
-      active_power:   { address: 52 }
-      frequency:      { address: 70 }
-      active_energy:  { address: 72 }
-
+    registers: *lm1360
   - id: meter11
     slave: 11
     tenant: rucha-engineers
     plant: plant01
-    registers:
-      voltage:        { address: 0 }
-      current:        { address: 6 }
-      active_power:   { address: 52 }
-      frequency:      { address: 70 }
-      active_energy:  { address: 72 }
+    registers: *lm1360
