@@ -42,6 +42,8 @@ devices:
       # --- power quality (harmonic distortion) ---
       voltage_thd:     { address: 218 }
       current_thd:     { address: 220 }
+      # --- billed demand ---
+      maximum_demand:  { address: 102 }   # max kVA demand (value in VA, /1000 for kVA)
   - id: meter10
     slave: 10
     tenant: rucha-engineers

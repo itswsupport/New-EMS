@@ -16,7 +16,7 @@ const rec: TelemetryRecord = {
   currentL1: null, currentL2: null, currentL3: null,
   activePowerL1: null, activePowerL2: null, activePowerL3: null,
   powerFactorL1: null, powerFactorL2: null, powerFactorL3: null,
-  voltageThd: null, currentThd: null,
+  voltageThd: null, currentThd: null, maximumDemand: null,
   quality: "UNCERTAIN",
 };
 

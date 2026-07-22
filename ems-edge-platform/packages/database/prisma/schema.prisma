@@ -55,6 +55,8 @@ model EnergyTelemetry {
   // Power quality — harmonic distortion (top predictive-maintenance signal)
   voltageThd     Float?   @map("voltage_thd")
   currentThd     Float?   @map("current_thd")
+  // Maximum (apparent-power) demand — the utility-billed kVA demand
+  maximumDemand  Float?   @map("maximum_demand")
 
   quality        String   @db.VarChar(16)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)

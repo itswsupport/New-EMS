@@ -40,7 +40,8 @@ type NumericField =
   | "powerFactorL2"
   | "powerFactorL3"
   | "voltageThd"
-  | "currentThd";
+  | "currentThd"
+  | "maximumDemand";
 
 /** Config metric key -> TelemetryRecord field. Central so mapping stays declarative. */
 const FIELD_BY_METRIC: Record<string, NumericField> = {
@@ -68,6 +69,7 @@ const FIELD_BY_METRIC: Record<string, NumericField> = {
   power_factor_l3: "powerFactorL3",
   voltage_thd: "voltageThd",
   current_thd: "currentThd",
+  maximum_demand: "maximumDemand",
 };
 
 /**
@@ -109,6 +111,7 @@ export function mapReadingsToRecord(
     powerFactorL3: null,
     voltageThd: null,
     currentThd: null,
+    maximumDemand: null,
   };
 
   let good = 0;

@@ -38,6 +38,7 @@ export const telemetryBoundsSchema = z.object({
   powerFactorL3: nullableInRange(-1, 1),
   voltageThd: nullableInRange(0, 100),
   currentThd: nullableInRange(0, 100),
+  maximumDemand: nullableInRange(0, 2_000_000),
 });
 
 /**

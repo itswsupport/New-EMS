@@ -44,6 +44,9 @@ export interface TelemetryRecord {
   readonly voltageThd: number | null;
   readonly currentThd: number | null;
 
+  // --- Maximum (apparent-power) demand — the utility-billed kVA demand ---
+  readonly maximumDemand: number | null;
+
   readonly quality: Quality;
 }
 
@@ -73,6 +76,7 @@ export const TELEMETRY_METRIC_KEYS = [
   "power_factor_l3",
   "voltage_thd",
   "current_thd",
+  "maximum_demand",
 ] as const;
 
 export type TelemetryMetricKey = (typeof TELEMETRY_METRIC_KEYS)[number];

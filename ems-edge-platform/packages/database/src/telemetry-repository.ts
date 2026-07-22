@@ -53,6 +53,7 @@ export class PrismaTelemetryRepository implements TelemetryRepository {
         powerFactorL3: r.powerFactorL3,
         voltageThd: r.voltageThd,
         currentThd: r.currentThd,
+        maximumDemand: r.maximumDemand,
         quality: r.quality,
       })),
       skipDuplicates: false,
