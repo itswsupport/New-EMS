@@ -43,11 +43,15 @@ describe("Modbus TCP (MBAP) codec", () => {
     expect(isOk(res) && res.value.data.length).toBe(4);
   });
 
-  it("rejects a transaction-id mismatch (bus desync)", () => {
+  it("accepts a response whose transaction id differs (gateway reassigns it)", () => {
+    // A Modbus RTU<->TCP gateway (e.g. SenseLive X5050) assigns its OWN MBAP
+    // transaction ids on the reply — they never match ours. Since we serialize
+    // requests, correlation is by ordering, so a differing txn must still parse.
     const codec = new ModbusTcpCodec();
-    codec.buildReadHoldingRequest(7, 0, 2);           // txn = 1
-    const stale = mbapResponse(999, 7, Uint8Array.from([0, 0, 0, 0]));
-    expect(isErr(codec.parseReadResponse(stale, 7))).toBe(true);
+    codec.buildReadHoldingRequest(7, 0, 2);           // our txn = 1
+    const reply = mbapResponse(0x0bc9, 7, Uint8Array.from([0x43, 0x67, 0xb9, 0x7e]));
+    const res = codec.parseReadResponse(reply, 7);
+    expect(isOk(res) && res.value.data.length).toBe(4);
   });
 
   it("surfaces a Modbus exception frame", () => {

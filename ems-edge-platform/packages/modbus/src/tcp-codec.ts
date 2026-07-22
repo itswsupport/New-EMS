@@ -22,11 +22,9 @@ export class ModbusTcpCodec implements ModbusCodec {
   readonly framing = "tcp" as const;
   /** Per-connection transaction counter; wraps at 16 bits. */
   #txn = 0;
-  #lastTxn = 0;
 
   buildReadHoldingRequest(slave: number, address: number, quantity: number): Uint8Array {
     this.#txn = (this.#txn + 1) & 0xffff;
-    this.#lastTxn = this.#txn;
 
     const adu = new Uint8Array(12);
     adu[0] = (this.#txn >>> 8) & 0xff;
@@ -65,17 +63,11 @@ export class ModbusTcpCodec implements ModbusCodec {
       );
     }
 
-    const txn = (frame[0]! << 8) | frame[1]!;
-    if (txn !== this.#lastTxn) {
-      // A stale/out-of-order reply. Transactions are serialized, so this means
-      // the bus desynced — surface it rather than mapping the wrong register.
-      return err(
-        new DomainError("MODBUS_EXCEPTION", "transaction id mismatch", {
-          expected: this.#lastTxn,
-          got: txn,
-        }),
-      );
-    }
+    // We deliberately do NOT verify the MBAP transaction id. A Modbus gateway
+    // that converts RTU<->TCP (e.g. SenseLive X5050) assigns its OWN transaction
+    // ids on the response — RTU has none — so they never match ours. Because
+    // each connection has at most one request in flight (transactions are
+    // serialized), response correlation is guaranteed by ordering, not by id.
 
     const slave = frame[6]!;
     const fn = frame[7]!;

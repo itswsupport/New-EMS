@@ -90,6 +90,11 @@ services:
       DATABASE_URL_FILE: /run/secrets/database_url
     secrets:
       - database_url
+    volumes:
+      # Live-mount the device/register map so meters & registers can be changed
+      # with just an app restart — no image rebuild. The image still bakes a
+      # copy as the default; this overlay wins when present.
+      - ./config/devices.yaml:/app/config/devices.yaml:ro
     ports:
       # HOST_IP : HOST_PORT : CONTAINER_PORT
       #
