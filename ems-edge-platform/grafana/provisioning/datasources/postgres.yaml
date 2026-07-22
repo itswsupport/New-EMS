@@ -1,0 +1,22 @@
+# Grafana datasource — provisioned (read-only). Points at the EMS Postgres on
+# the internal ems-net network. The password is read from the mounted Docker
+# secret via Grafana's $__file{} provisioning macro, so no credential is baked
+# into this file or the image.
+apiVersion: 1
+
+datasources:
+  - name: EMS PostgreSQL
+    uid: ems-postgres
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    user: ems
+    isDefault: true
+    editable: false
+    jsonData:
+      database: ems
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: $__file{/run/secrets/db_password}

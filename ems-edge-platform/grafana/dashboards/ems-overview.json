@@ -1,0 +1,134 @@
+{
+  "uid": "ems-overview",
+  "title": "EMS Overview",
+  "tags": ["ems", "energy"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "meter",
+        "label": "Meter",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "ems-postgres" },
+        "query": "SELECT DISTINCT device_id FROM energy_telemetry ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Active Power by Meter (kW)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "kwatt", "custom": { "drawStyle": "line", "fillOpacity": 12, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(active_power)/1000.0 AS \"kW\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Power Factor by Meter",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never", "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 0.9 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(power_factor) AS \"PF\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Voltage by Meter (system avg, V)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "volt", "custom": { "drawStyle": "line", "fillOpacity": 0, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(voltage) AS \"V\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Current THD by Meter (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never", "thresholdsStyle": { "mode": "dashed" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 8 }, { "color": "red", "value": 15 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(current_thd) AS \"THD\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Per-phase Voltage — $meter (V)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "volt", "custom": { "drawStyle": "line", "fillOpacity": 0, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), avg(voltage_l1) AS \"L1\", avg(voltage_l2) AS \"L2\", avg(voltage_l3) AS \"L3\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") AND device_id = '$meter' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Per-phase Current — $meter (A)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "amp", "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), avg(current_l1) AS \"L1\", avg(current_l2) AS \"L2\", avg(current_l3) AS \"L3\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") AND device_id = '$meter' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}
