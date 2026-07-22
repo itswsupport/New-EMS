@@ -11,7 +11,13 @@ const rec: TelemetryRecord = {
   deviceId: "m7", tenantId: "t", plantId: "p", timestamp: new Date(0),
   voltage: 230, current: null, frequency: null, powerFactor: null,
   activePower: null, reactivePower: null, apparentPower: null,
-  activeEnergy: null, reactiveEnergy: null, thd: null, quality: "UNCERTAIN",
+  activeEnergy: null, reactiveEnergy: null, thd: null,
+  voltageL1: null, voltageL2: null, voltageL3: null,
+  currentL1: null, currentL2: null, currentL3: null,
+  activePowerL1: null, activePowerL2: null, activePowerL3: null,
+  powerFactorL1: null, powerFactorL2: null, powerFactorL3: null,
+  voltageThd: null, currentThd: null,
+  quality: "UNCERTAIN",
 };
 
 describe("DatabaseWriter", () => {

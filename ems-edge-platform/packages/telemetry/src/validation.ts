@@ -22,6 +22,22 @@ export const telemetryBoundsSchema = z.object({
   activeEnergy: nullableInRange(0, 1e12),
   reactiveEnergy: nullableInRange(0, 1e12),
   thd: nullableInRange(0, 100),
+
+  // Per-phase (same physical bounds as their aggregate counterparts)
+  voltageL1: nullableInRange(0, 1000),
+  voltageL2: nullableInRange(0, 1000),
+  voltageL3: nullableInRange(0, 1000),
+  currentL1: nullableInRange(0, 10_000),
+  currentL2: nullableInRange(0, 10_000),
+  currentL3: nullableInRange(0, 10_000),
+  activePowerL1: nullableInRange(-2_000_000, 2_000_000),
+  activePowerL2: nullableInRange(-2_000_000, 2_000_000),
+  activePowerL3: nullableInRange(-2_000_000, 2_000_000),
+  powerFactorL1: nullableInRange(-1, 1),
+  powerFactorL2: nullableInRange(-1, 1),
+  powerFactorL3: nullableInRange(-1, 1),
+  voltageThd: nullableInRange(0, 100),
+  currentThd: nullableInRange(0, 100),
 });
 
 /**

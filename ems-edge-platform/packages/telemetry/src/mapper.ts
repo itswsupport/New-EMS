@@ -26,7 +26,21 @@ type NumericField =
   | "apparentPower"
   | "activeEnergy"
   | "reactiveEnergy"
-  | "thd";
+  | "thd"
+  | "voltageL1"
+  | "voltageL2"
+  | "voltageL3"
+  | "currentL1"
+  | "currentL2"
+  | "currentL3"
+  | "activePowerL1"
+  | "activePowerL2"
+  | "activePowerL3"
+  | "powerFactorL1"
+  | "powerFactorL2"
+  | "powerFactorL3"
+  | "voltageThd"
+  | "currentThd";
 
 /** Config metric key -> TelemetryRecord field. Central so mapping stays declarative. */
 const FIELD_BY_METRIC: Record<string, NumericField> = {
@@ -40,6 +54,20 @@ const FIELD_BY_METRIC: Record<string, NumericField> = {
   active_energy: "activeEnergy",
   reactive_energy: "reactiveEnergy",
   thd: "thd",
+  voltage_l1: "voltageL1",
+  voltage_l2: "voltageL2",
+  voltage_l3: "voltageL3",
+  current_l1: "currentL1",
+  current_l2: "currentL2",
+  current_l3: "currentL3",
+  active_power_l1: "activePowerL1",
+  active_power_l2: "activePowerL2",
+  active_power_l3: "activePowerL3",
+  power_factor_l1: "powerFactorL1",
+  power_factor_l2: "powerFactorL2",
+  power_factor_l3: "powerFactorL3",
+  voltage_thd: "voltageThd",
+  current_thd: "currentThd",
 };
 
 /**
@@ -67,6 +95,20 @@ export function mapReadingsToRecord(
     activeEnergy: null,
     reactiveEnergy: null,
     thd: null,
+    voltageL1: null,
+    voltageL2: null,
+    voltageL3: null,
+    currentL1: null,
+    currentL2: null,
+    currentL3: null,
+    activePowerL1: null,
+    activePowerL2: null,
+    activePowerL3: null,
+    powerFactorL1: null,
+    powerFactorL2: null,
+    powerFactorL3: null,
+    voltageThd: null,
+    currentThd: null,
   };
 
   let good = 0;

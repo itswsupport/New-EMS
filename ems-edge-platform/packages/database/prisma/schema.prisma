@@ -39,6 +39,23 @@ model EnergyTelemetry {
   reactiveEnergy Float?   @map("reactive_energy")
   thd            Float?
 
+  // Per-phase (STEP 2) — imbalance detection + per-machine load breakdown
+  voltageL1      Float?   @map("voltage_l1")
+  voltageL2      Float?   @map("voltage_l2")
+  voltageL3      Float?   @map("voltage_l3")
+  currentL1      Float?   @map("current_l1")
+  currentL2      Float?   @map("current_l2")
+  currentL3      Float?   @map("current_l3")
+  activePowerL1  Float?   @map("active_power_l1")
+  activePowerL2  Float?   @map("active_power_l2")
+  activePowerL3  Float?   @map("active_power_l3")
+  powerFactorL1  Float?   @map("power_factor_l1")
+  powerFactorL2  Float?   @map("power_factor_l2")
+  powerFactorL3  Float?   @map("power_factor_l3")
+  // Power quality — harmonic distortion (top predictive-maintenance signal)
+  voltageThd     Float?   @map("voltage_thd")
+  currentThd     Float?   @map("current_thd")
+
   quality        String   @db.VarChar(16)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 

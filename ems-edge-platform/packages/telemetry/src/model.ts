@@ -26,6 +26,24 @@ export interface TelemetryRecord {
   readonly reactiveEnergy: number | null;
   readonly thd: number | null;
 
+  // --- Per-phase (STEP 2): imbalance detection + per-machine breakdown ---
+  readonly voltageL1: number | null;
+  readonly voltageL2: number | null;
+  readonly voltageL3: number | null;
+  readonly currentL1: number | null;
+  readonly currentL2: number | null;
+  readonly currentL3: number | null;
+  readonly activePowerL1: number | null;
+  readonly activePowerL2: number | null;
+  readonly activePowerL3: number | null;
+  readonly powerFactorL1: number | null;
+  readonly powerFactorL2: number | null;
+  readonly powerFactorL3: number | null;
+
+  // --- Power quality: harmonic distortion (top predictive-maintenance signal) ---
+  readonly voltageThd: number | null;
+  readonly currentThd: number | null;
+
   readonly quality: Quality;
 }
 
@@ -41,6 +59,20 @@ export const TELEMETRY_METRIC_KEYS = [
   "active_energy",
   "reactive_energy",
   "thd",
+  "voltage_l1",
+  "voltage_l2",
+  "voltage_l3",
+  "current_l1",
+  "current_l2",
+  "current_l3",
+  "active_power_l1",
+  "active_power_l2",
+  "active_power_l3",
+  "power_factor_l1",
+  "power_factor_l2",
+  "power_factor_l3",
+  "voltage_thd",
+  "current_thd",
 ] as const;
 
 export type TelemetryMetricKey = (typeof TELEMETRY_METRIC_KEYS)[number];
