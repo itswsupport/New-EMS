@@ -1,14 +1,16 @@
 # =============================================================================
 # Notification wiring for the EMS alerts — VISUAL ONLY.
 #
-# A single contact point with no external integration, and a default policy
-# routing everything to it. This satisfies Grafana's unified-alerting
-# requirement (rules must route somewhere) while sending NOTHING outward:
-# alert state (Normal / Pending / Firing) is visible in Alerting → Alert rules
-# and on dashboards, but no email/Slack/webhook is delivered.
+# Alert *state* (Normal / Pending / Firing) is evaluated and shown in
+# Alerting → Alert rules and on dashboards. Notification *delivery* is fully
+# muted via an always-on mute timing, so Grafana never attempts to send
+# anything (no email/Slack/webhook, and no delivery-error log spam).
 #
-# To enable real delivery later, add an integration to the contact point below
-# (e.g. an `email` or `slack` block) — no rule changes needed.
+# To enable real delivery later:
+#   1. Add an integration to the `ems-visual` contact point (e.g. an `email` or
+#      `slack` block), and configure Grafana SMTP if using email.
+#   2. Remove `mute_time_intervals: [always]` from the policy below.
+# No alert-rule changes are needed.
 # =============================================================================
 apiVersion: 1
 
@@ -17,12 +19,20 @@ contactPoints:
     name: ems-visual
     receivers:
       - uid: ems-visual-noop
-        # A webhook to localhost that no one is listening on = state tracked in
-        # Grafana, nothing delivered. Disabled from resolved notifications too.
         type: webhook
         disableResolveMessage: true
         settings:
           url: http://localhost:1/noop
+
+# An always-active mute window — suppresses ALL notification delivery while
+# leaving alert evaluation/state untouched.
+muteTimes:
+  - orgId: 1
+    name: always
+    time_intervals:
+      - times:
+          - start_time: "00:00"
+            end_time: "24:00"
 
 policies:
   - orgId: 1
@@ -31,3 +41,5 @@ policies:
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 4h
+    mute_time_intervals:
+      - always
