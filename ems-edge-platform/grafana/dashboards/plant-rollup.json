@@ -1,0 +1,120 @@
+{
+  "uid": "ems-plant-rollup",
+  "title": "EMS Plant Rollup",
+  "tags": ["ems", "plant"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Plant Active Power (kW, latest)",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "kwatt", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "orange" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value", "colorMode": "background" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT sum(p)/1000.0 AS kw FROM (SELECT DISTINCT ON (device_id) device_id, active_power AS p FROM energy_telemetry WHERE timestamp > now() - interval '30 s' ORDER BY device_id, timestamp DESC) s"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Plant Energy today (kWh)",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "kwatth", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value", "colorMode": "background" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT sum(d)/1000.0 AS kwh FROM (SELECT max(active_energy)-min(active_energy) AS d FROM energy_telemetry WHERE timestamp > date_trunc('day', now()) GROUP BY device_id) s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Plant Power Factor (aggregate)",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 3, "min": 0, "max": 1, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 0.9 }, { "color": "green", "value": 0.95 } ] }, "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value", "colorMode": "background" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT sum(active_power)/nullif(sum(apparent_power),0) AS pf FROM (SELECT DISTINCT ON (device_id) device_id, active_power, apparent_power FROM energy_telemetry WHERE timestamp > now() - interval '30 s' ORDER BY device_id, timestamp DESC) s"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Meters Online",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 3 } ] }, "color": { "mode": "thresholds" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value", "colorMode": "background" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT count(DISTINCT device_id) AS online FROM energy_telemetry WHERE timestamp > now() - interval '60 s'"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Plant Total Active Power (kW)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "kwatt", "custom": { "drawStyle": "line", "fillOpacity": 15, "showPoints": "never" }, "color": { "mode": "fixed", "fixedColor": "orange" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT time, sum(kw) AS \"Plant kW\" FROM (SELECT $__timeGroup(\"timestamp\", $__interval) AS time, device_id, avg(active_power)/1000.0 AS kw FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY time, device_id) s GROUP BY time ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Active Power by Meter (kW) — contribution",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "kwatt", "custom": { "drawStyle": "line", "fillOpacity": 25, "showPoints": "never", "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(active_power)/1000.0 AS \"kW\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

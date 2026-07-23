@@ -1,0 +1,203 @@
+# =============================================================================
+# EMS alert rules (Grafana unified alerting, provisioned).
+# Each rule: A = per-meter SQL value, B = reduce(last), C = threshold → condition.
+# Alerts are VISUAL ONLY (see contactpoints.yaml) — state shows in
+# Alerting → Alert rules; nothing is emailed/pushed.
+#
+# TO TUNE:
+#   • "Max Demand near contract" threshold (270) = 0.9 × 300 kVA placeholder.
+#     Change [270] to 0.9 × your real contract kVA once known.
+# =============================================================================
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: EMS
+    folder: EMS Alerts
+    interval: 1m
+    rules:
+      # --- 1. Meter offline (no fresh data) — CRITICAL --------------------------
+      - uid: ems-meter-offline
+        title: Meter offline (no data > 60s)
+        condition: C
+        for: 0s
+        noDataState: Alerting
+        execErrState: Error
+        labels: { severity: critical }
+        annotations:
+          summary: "Meter {{ $labels.device_id }} has not reported for over 60 seconds."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: ems-postgres
+            model:
+              refId: A
+              format: table
+              datasource: { type: postgres, uid: ems-postgres }
+              rawSql: "SELECT device_id, EXTRACT(EPOCH FROM (now() - max(timestamp))) AS age_s FROM energy_telemetry GROUP BY device_id"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [60] }
+
+      # --- 2. Maximum Demand approaching contract — WARNING --------------------
+      - uid: ems-max-demand
+        title: Max Demand near contract
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Meter {{ $labels.device_id }} max demand is approaching the contracted kVA limit."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: ems-postgres
+            model:
+              refId: A
+              format: table
+              datasource: { type: postgres, uid: ems-postgres }
+              rawSql: "SELECT device_id, max(maximum_demand)/1000.0 AS md_kva FROM energy_telemetry WHERE timestamp > now() - interval '15 min' GROUP BY device_id"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [270] }
+
+      # --- 3. Low Power Factor — WARNING --------------------------------------
+      - uid: ems-low-pf
+        title: Low Power Factor (< 0.9)
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Meter {{ $labels.device_id }} power factor below 0.9 — PF penalty risk."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: ems-postgres
+            model:
+              refId: A
+              format: table
+              datasource: { type: postgres, uid: ems-postgres }
+              rawSql: "SELECT device_id, avg(power_factor) AS pf FROM energy_telemetry WHERE timestamp > now() - interval '5 min' GROUP BY device_id"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [0.9] }
+
+      # --- 4. Voltage out of range (210–245 V) — WARNING ----------------------
+      - uid: ems-voltage-range
+        title: Voltage out of range (210-245V)
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Meter {{ $labels.device_id }} average voltage is outside 210-245 V."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: ems-postgres
+            model:
+              refId: A
+              format: table
+              datasource: { type: postgres, uid: ems-postgres }
+              rawSql: "SELECT device_id, avg(voltage) AS v FROM energy_telemetry WHERE timestamp > now() - interval '5 min' GROUP BY device_id"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: outside_range, params: [210, 245] }
+
+      # --- 5. High Current THD (> 20%) — WARNING ------------------------------
+      - uid: ems-high-ithd
+        title: High Current THD (> 20%)
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Meter {{ $labels.device_id }} current THD above 20% — harmonic stress."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: ems-postgres
+            model:
+              refId: A
+              format: table
+              datasource: { type: postgres, uid: ems-postgres }
+              rawSql: "SELECT device_id, avg(current_thd) AS ithd FROM energy_telemetry WHERE timestamp > now() - interval '5 min' GROUP BY device_id"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [20] }
+
+      # --- 6. High Current Imbalance (> 10%) — WARNING ------------------------
+      - uid: ems-current-imbalance
+        title: High Current Imbalance (> 10%)
+        condition: C
+        for: 2m
+        noDataState: OK
+        execErrState: Error
+        labels: { severity: warning }
+        annotations:
+          summary: "Meter {{ $labels.device_id }} phase-current imbalance above 10%."
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: ems-postgres
+            model:
+              refId: A
+              format: table
+              datasource: { type: postgres, uid: ems-postgres }
+              rawSql: "SELECT device_id, avg((greatest(current_l1,current_l2,current_l3)-least(current_l1,current_l2,current_l3)) / nullif((current_l1+current_l2+current_l3)/3.0,0) * 100) AS imb FROM energy_telemetry WHERE timestamp > now() - interval '5 min' GROUP BY device_id"
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [10] }

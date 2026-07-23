@@ -1,0 +1,134 @@
+{
+  "uid": "ems-power-quality",
+  "title": "EMS Power Quality",
+  "tags": ["ems", "power-quality", "pdm"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "meter",
+        "label": "Meter",
+        "type": "query",
+        "datasource": { "type": "postgres", "uid": "ems-postgres" },
+        "query": "SELECT DISTINCT device_id FROM energy_telemetry ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Voltage THD by Meter (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never", "thresholdsStyle": { "mode": "dashed" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 8 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(voltage_thd) AS \"V-THD\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Current THD by Meter (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never", "thresholdsStyle": { "mode": "dashed" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 8 }, { "color": "red", "value": 15 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(current_thd) AS \"I-THD\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Voltage Imbalance by Meter (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 6, "showPoints": "never", "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 10 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg((greatest(voltage_l1,voltage_l2,voltage_l3)-least(voltage_l1,voltage_l2,voltage_l3)) / nullif((voltage_l1+voltage_l2+voltage_l3)/3.0,0) * 100) AS \"imbalance\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Current Imbalance by Meter (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 6, "showPoints": "never", "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 10 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg((greatest(current_l1,current_l2,current_l3)-least(current_l1,current_l2,current_l3)) / nullif((current_l1+current_l2+current_l3)/3.0,0) * 100) AS \"imbalance\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Per-phase Voltage — $meter (V)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "volt", "custom": { "drawStyle": "line", "fillOpacity": 0, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), avg(voltage_l1) AS \"L1\", avg(voltage_l2) AS \"L2\", avg(voltage_l3) AS \"L3\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") AND device_id = '$meter' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Per-phase Current — $meter (A)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "amp", "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), avg(current_l1) AS \"L1\", avg(current_l2) AS \"L2\", avg(current_l3) AS \"L3\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") AND device_id = '$meter' GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}

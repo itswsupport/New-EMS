@@ -1,0 +1,140 @@
+{
+  "uid": "ems-cost-demand",
+  "title": "EMS Cost & Demand",
+  "tags": ["ems", "cost"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "contract_kva",
+        "label": "Contract Demand (kVA)",
+        "type": "constant",
+        "query": "300",
+        "current": { "text": "300", "value": "300" },
+        "hide": 0
+      },
+      {
+        "name": "tariff",
+        "label": "Tariff (per kWh)",
+        "type": "constant",
+        "query": "8",
+        "current": { "text": "8", "value": "8" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "gauge",
+      "title": "Max Demand vs Contract (% of ${contract_kva} kVA)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 120, "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 85 }, { "color": "red", "value": 100 } ] } }, "overrides": [] },
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT device_id AS metric, max(maximum_demand)/1000.0 / ${contract_kva} * 100 AS \"pct\" FROM energy_telemetry WHERE timestamp > now() - interval '15 min' GROUP BY device_id ORDER BY device_id"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Power Factor (penalty view — red below 0.9)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 8, "showPoints": "never", "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 0.9 } ] } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "min"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(power_factor) AS \"PF\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Active Energy consumed in range (kWh) — by meter",
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "kwatth", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": true }, "textMode": "value_and_name", "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT device_id, (max(active_energy)-min(active_energy))/1000.0 AS kwh FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY device_id ORDER BY device_id"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Estimated energy cost in range — by meter",
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "currencyINR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": true }, "textMode": "value_and_name", "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT device_id, (max(active_energy)-min(active_energy))/1000.0 * ${tariff} AS cost FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY device_id ORDER BY device_id"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Plant total cost in range",
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "currencyINR", "decimals": 0, "color": { "mode": "fixed", "fixedColor": "purple" } }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "value", "colorMode": "background" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "table",
+          "editorMode": "code",
+          "rawSql": "SELECT sum(d)/1000.0 * ${tariff} AS total_cost FROM (SELECT max(active_energy)-min(active_energy) AS d FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY device_id) s"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Reactive Energy (kVArh) — PF-penalty driver",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 15 },
+      "datasource": { "type": "postgres", "uid": "ems-postgres" },
+      "fieldConfig": { "defaults": { "unit": "none", "custom": { "drawStyle": "line", "fillOpacity": 6, "showPoints": "never" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "postgres", "uid": "ems-postgres" },
+          "format": "time_series",
+          "editorMode": "code",
+          "rawSql": "SELECT $__timeGroupAlias(\"timestamp\", $__interval), device_id AS metric, avg(reactive_energy)/1000.0 AS \"kVArh\" FROM energy_telemetry WHERE $__timeFilter(\"timestamp\") GROUP BY 1, device_id ORDER BY 1"
+        }
+      ]
+    }
+  ]
+}
