@@ -2,15 +2,16 @@
 # Notification wiring for the EMS alerts — VISUAL ONLY.
 #
 # Alert *state* (Normal / Pending / Firing) is evaluated and shown in
-# Alerting → Alert rules and on dashboards. Notification *delivery* is fully
-# muted via an always-on mute timing, so Grafana never attempts to send
-# anything (no email/Slack/webhook, and no delivery-error log spam).
+# Alerting → Alert rules and on dashboards. A single contact point routes to a
+# no-op webhook (localhost:1) so nothing is actually delivered outward.
 #
-# To enable real delivery later:
-#   1. Add an integration to the `ems-visual` contact point (e.g. an `email` or
-#      `slack` block), and configure Grafana SMTP if using email.
-#   2. Remove `mute_time_intervals: [always]` from the policy below.
-# No alert-rule changes are needed.
+# NOTE: because delivery targets a dead endpoint, Grafana logs a harmless
+# "connection refused" when an alert fires. This is cosmetic (logs rotate at
+# 10 MB) — do NOT replace it with a provisioned mute timing unless tested
+# against a running Grafana; a malformed mute block makes Grafana exit on boot.
+#
+# To enable real delivery later, add an integration (email/slack/...) to the
+# ems-visual contact point (and Grafana SMTP if email). No rule changes needed.
 # =============================================================================
 apiVersion: 1
 
@@ -24,22 +25,10 @@ contactPoints:
         settings:
           url: http://localhost:1/noop
 
-# An always-active mute window — suppresses ALL notification delivery while
-# leaving alert evaluation/state untouched.
-muteTimes:
-  - orgId: 1
-    name: always
-    time_intervals:
-      - times:
-          - start_time: "00:00"
-            end_time: "24:00"
-
 policies:
   - orgId: 1
     receiver: ems-visual
     group_by: ["alertname", "device_id"]
     group_wait: 30s
     group_interval: 5m
-    repeat_interval: 4h
-    mute_time_intervals:
-      - always
+    repeat_interval: 12h
