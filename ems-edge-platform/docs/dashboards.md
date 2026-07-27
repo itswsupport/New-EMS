@@ -17,7 +17,11 @@ rules live in `grafana/` and deploy with `git pull` (dashboards auto-reload in ~
 Two editable variables at the top of the dashboard (no redeploy to change):
 - **`contract_kva`** — your contracted/sanctioned demand (default 300). The gauge shows
   demand as **% of this** (green < 85%, amber 85–100%, red > 100% = penalty zone).
-- **`tariff`** — energy price per kWh (default 8). Drives the "Estimated cost" stats.
+- **`tariff`** — **kVAh** tariff in ₹ (default 10.5). Maharashtra industrial connections bill on
+  **apparent energy (kVAh)**, not kWh — so cost = **kVAh × tariff**, where
+  `kVAh = √(kWh² + kVArh²)` computed from the meter's active + reactive energy (the LM1360's own
+  kVAh register wasn't reliably identifiable, so this standard approximation is used). Because kVAh
+  billing already embeds the power-factor penalty, a low PF directly inflates this cost.
 
 Set them from the dashboard's variable bar; they persist per-browser.
 
