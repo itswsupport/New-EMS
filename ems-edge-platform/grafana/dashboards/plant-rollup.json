@@ -40,7 +40,7 @@
           "datasource": { "type": "postgres", "uid": "ems-postgres" },
           "format": "table",
           "editorMode": "code",
-          "rawSql": "SELECT sum(d)/1000.0 AS kwh FROM (SELECT max(active_energy)-min(active_energy) AS d FROM energy_telemetry WHERE timestamp > date_trunc('day', now()) GROUP BY device_id) s"
+          "rawSql": "-- Day boundary is IST, not the Postgres session TZ (Etc/UTC): a bare date_trunc('day', now()) rolls over at 05:30 IST and under-reports until then.\nSELECT sum(d)/1000.0 AS kwh FROM (SELECT max(active_energy)-min(active_energy) AS d FROM energy_telemetry WHERE timestamp >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata' GROUP BY device_id) s"
         }
       ]
     },
@@ -58,7 +58,7 @@
           "datasource": { "type": "postgres", "uid": "ems-postgres" },
           "format": "table",
           "editorMode": "code",
-          "rawSql": "SELECT sum(active_power)/nullif(sum(apparent_power),0) AS pf FROM (SELECT DISTINCT ON (device_id) device_id, active_power, apparent_power FROM energy_telemetry WHERE timestamp > now() - interval '30 s' ORDER BY device_id, timestamp DESC) s"
+          "rawSql": "-- 15-min load-weighted PF. Plant PF is genuinely bimodal (~35% of samples sit near unity, the rest 0.87-0.92), so a 30s DISTINCT ON snapshot swung 0.87<->0.99 and read as a fault. Derived from the power_factor register rather than apparent_power; both agree on average.\nSELECT sum(active_power)/nullif(sum(active_power/nullif(power_factor,0)),0) AS pf FROM energy_telemetry WHERE timestamp > now() - interval '15 min'"
         }
       ]
     },

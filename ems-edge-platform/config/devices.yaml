@@ -7,6 +7,16 @@
 # To store all meters uniformly in Wh, meter10 & 11 apply scale: 1000 to their
 # active_energy and reactive_energy registers. (Power/demand are base units on
 # all meters, so only the two energy counters are scaled.)
+#
+# REACTIVE ENERGY NOTE (unverified — pending live confirmation): the LM1360 keeps
+# reactive energy in TWO counters, capacitive and inductive (manual Rev G, sec 2 /
+# "Modbus registers for Main energy Count"). Address 76 accumulated 16-800x slower
+# than kWh x tan(phi) implies on all three meters — the signature of the CAPACITIVE
+# counter on an inductive plant. Moved to 78 on the assumption this block mirrors
+# the documented order (Wh imp, Wh exp, VArh cap, VArh ind, VAh) without the
+# interleaved overflow registers. CONFIRM by checking that the accumulation rate
+# now matches kWh x tan(phi); if it does, address 80 is apparent energy (VAh) —
+# the counter the kVAh bill should be read from directly.
 # =============================================================================
 version: 1
 defaults:
@@ -31,7 +41,8 @@ devices:
       power_factor:    { address: 62 }
       frequency:       { address: 70 }
       active_energy:   { address: 72 }
-      reactive_energy: { address: 76 }
+      # 76 was the CAPACITIVE VArh counter — see REACTIVE ENERGY NOTE above.
+      reactive_energy: { address: 78 }
       # per-phase voltage / current
       voltage_l1:      { address: 0 }
       voltage_l2:      { address: 2 }
@@ -67,7 +78,8 @@ devices:
       power_factor:    { address: 62 }
       frequency:       { address: 70 }
       active_energy:   { address: 72, scale: 1000 }
-      reactive_energy: { address: 76, scale: 1000 }
+      # 76 was the CAPACITIVE VArh counter — see REACTIVE ENERGY NOTE above.
+      reactive_energy: { address: 78, scale: 1000 }
       # per-phase voltage / current
       voltage_l1:      { address: 0 }
       voltage_l2:      { address: 2 }
