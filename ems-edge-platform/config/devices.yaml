@@ -8,15 +8,30 @@
 # active_energy and reactive_energy registers. (Power/demand are base units on
 # all meters, so only the two energy counters are scaled.)
 #
-# REACTIVE ENERGY NOTE (unverified — pending live confirmation): the LM1360 keeps
-# reactive energy in TWO counters, capacitive and inductive (manual Rev G, sec 2 /
-# "Modbus registers for Main energy Count"). Address 76 accumulated 16-800x slower
-# than kWh x tan(phi) implies on all three meters — the signature of the CAPACITIVE
-# counter on an inductive plant. Moved to 78 on the assumption this block mirrors
-# the documented order (Wh imp, Wh exp, VArh cap, VArh ind, VAh) without the
-# interleaved overflow registers. CONFIRM by checking that the accumulation rate
-# now matches kWh x tan(phi); if it does, address 80 is apparent energy (VAh) —
-# the counter the kVAh bill should be read from directly.
+# REACTIVE ENERGY NOTE — DO NOT PROBE THIS LIVE. The LM1360 keeps reactive energy
+# in TWO counters, capacitive and inductive (manual Rev G, "Modbus registers for
+# Main energy Count"). Address 76 accumulates 16-800x slower than kWh x tan(phi)
+# implies on all three meters — the signature of the CAPACITIVE counter on an
+# inductive plant, so 76 is the wrong counter and kVAh billing cannot be built
+# from it.
+#
+# On 2026-08-14 reactive_energy was moved 76 -> 78 to test whether this block
+# mirrors the documented order (Wh imp, Wh exp, VArh cap, VArh ind, VAh). It does
+# not. Reading 78 CORRUPTED OTHER REGISTERS IN THE SAME POLL: active_energy at 72
+# started returning garbage (meter07 swung 179k..36M Wh inside 24h, against a
+# clean max step of 736 Wh before the change) and four days of energy and cost
+# data were destroyed. Mechanism unconfirmed — note the map already reads 218/220
+# fine, so it is not simply block length; 78 may be unmapped on these units and
+# the response handling misaligns. Causation is certain: the A/B is exact. Reverted to 76 on 2026-08-18; steps returned to 250-512 Wh
+# immediately, confirming the cause.
+#
+# Corrupt data window: 2026-08-14 05:37 UTC .. 2026-08-18 04:50 UTC.
+#
+# The remaining unknowns — the true inductive VArh counter, the VAh counter the
+# kVAh bill should read, and the overflow registers (Total = OF x 10^EDRC + M,
+# EDRC at 46039, energy resolution at 46005) — must be resolved with
+# scripts/scan-registers.ts, which reads the meter WITHOUT writing to the
+# database. Never explore an unknown register map by editing this file.
 # =============================================================================
 version: 1
 defaults:
@@ -41,8 +56,8 @@ devices:
       power_factor:    { address: 62 }
       frequency:       { address: 70 }
       active_energy:   { address: 72 }
-      # 76 was the CAPACITIVE VArh counter — see REACTIVE ENERGY NOTE above.
-      reactive_energy: { address: 78 }
+      # 76 is the CAPACITIVE counter (wrong, but safe) — see REACTIVE ENERGY NOTE.
+      reactive_energy: { address: 76 }
       # per-phase voltage / current
       voltage_l1:      { address: 0 }
       voltage_l2:      { address: 2 }
@@ -78,8 +93,8 @@ devices:
       power_factor:    { address: 62 }
       frequency:       { address: 70 }
       active_energy:   { address: 72, scale: 1000 }
-      # 76 was the CAPACITIVE VArh counter — see REACTIVE ENERGY NOTE above.
-      reactive_energy: { address: 78, scale: 1000 }
+      # 76 is the CAPACITIVE counter (wrong, but safe) — see REACTIVE ENERGY NOTE.
+      reactive_energy: { address: 76, scale: 1000 }
       # per-phase voltage / current
       voltage_l1:      { address: 0 }
       voltage_l2:      { address: 2 }
