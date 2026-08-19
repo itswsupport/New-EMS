@@ -24,6 +24,9 @@ export function buildPipelineHooks(metrics: Metrics, stats: StatsStore): Pipelin
       metrics.decodeErrors.inc();
       stats.recordDecodeError();
     },
+    onReadFailure(slave) {
+      metrics.readFailures.inc({ slave: String(slave) });
+    },
     onRecordProduced(connectionId, tenant, plant) {
       metrics.recordsIngested.inc({ tenant, plant });
       stats.recordProduced(connectionId);

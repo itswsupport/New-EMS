@@ -104,7 +104,11 @@ export class DevicePoller {
     // Fire immediately, then on interval. Guard against overlap with #running.
     const tick = (): void => {
       if (this.#running || this.#stopped) return;
-      void this.#cycle();
+      // A cycle must never reject unhandled: the sink throws "queue is closed"
+      // if shutdown begins mid-poll, which would otherwise kill the process.
+      void this.#cycle().catch((cause: unknown) => {
+        this.log.warn({ reason: (cause as Error).message }, "poll cycle failed");
+      });
     };
     tick();
     this.#timer = setInterval(tick, this.opts.intervalMs);
@@ -195,6 +199,12 @@ export class DevicePoller {
     const readings: MetricReading[] = [];
     for (const reg of registers) {
       const value = await this.#readRegister(slave, reg.address, reg.quantity);
+      if (!value) {
+        // Nothing came back after every retry. Counted here, on the terminal
+        // path, so an absent slave is a number instead of silence — a block
+        // failure alone is not counted because it always falls back to here.
+        this.hooks.onReadFailure(slave);
+      }
       readings.push({
         metric: reg.metric,
         value: value ? this.#decode(value, reg) : null,

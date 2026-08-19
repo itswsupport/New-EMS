@@ -12,6 +12,7 @@ const log = createLogger({ level: "silent", service: "test" });
 const noopHooks: PipelineHooks = {
   onFrameDecoded: () => {}, onCrcError: () => {}, onModbusException: () => {},
   onDecodeError: () => {}, onRecordProduced: () => {}, onPollCycle: () => {},
+  onReadFailure: () => {},
 };
 
 const device: ResolvedDevice = {

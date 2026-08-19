@@ -20,6 +20,8 @@ export interface PipelineHooks {
   onCrcError(connectionId: string, slave: number): void;
   onModbusException(code: number): void;
   onDecodeError(connectionId: string): void;
+  /** A read returned nothing after all retries — timeout, or no such slave. */
+  onReadFailure(slave: number): void;
   onRecordProduced(connectionId: string, tenant: string, plant: string): void;
   onPollCycle(durationMs: number): void;
 }

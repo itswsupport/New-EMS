@@ -17,6 +17,7 @@ export class Metrics {
   readonly crcErrors: Counter<string>;
   readonly modbusExceptions: Counter<string>;
   readonly decodeErrors: Counter<string>;
+  readonly readFailures: Counter<string>;
   readonly recordsIngested: Counter<string>;
   readonly recordsPersisted: Counter<string>;
   readonly dbRetries: Counter<string>;
@@ -42,6 +43,9 @@ export class Metrics {
     this.crcErrors = c("ems_crc_errors_total", "RTU frames failing CRC");
     this.modbusExceptions = c("ems_modbus_exceptions_total", "Modbus exception responses", ["code"]);
     this.decodeErrors = c("ems_register_decode_errors_total", "Register decode failures");
+    // A slave that never answers produces no exception and no CRC error — it just
+    // times out. Without this counter an absent or misconfigured meter is silent.
+    this.readFailures = c("ems_register_read_failures_total", "Register reads that returned nothing (timeout/no reply)", ["slave"]);
     this.recordsIngested = c("ems_records_ingested_total", "Telemetry records mapped", ["tenant", "plant"]);
     this.recordsPersisted = c("ems_records_persisted_total", "Telemetry rows written to DB");
     this.dbRetries = c("ems_db_retries_total", "DB insert retry attempts");
