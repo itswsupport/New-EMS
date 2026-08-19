@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Tokens lifted from payroll-ui so the two apps read as one product:
+   shadcn "new-york" / neutral base, radius 0.625rem, Exo at a 12px root,
+   #2492AA sidebar, and the house rule that display text is uppercase.
+   ========================================================================== */
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-brand: var(--brand);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(100% 0.00011 271.152);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+
+  /* payroll-ui brand + status */
+  --sidebar: #2492aa;
+  --sidebar-foreground: #ffffff;
+  --brand: #3482ae;
+  --good: #20c997;
+  --warn: #ffc107;
+  --bad: #dc3545;
+
+  /* Categorical series.
+     chart-1 and chart-2 are payroll-ui's own tokens. Its chart-3
+     (oklch 0.398 0.070 227) fails both the lightness band and the chroma floor
+     on white — it reads gray — and chart-4 sits at 1.68:1 contrast, so neither
+     can carry a line. The violet third slot is substituted. The trio validates
+     all-pairs on this surface: worst CVD dE 14.8, normal-vision 27.3, all
+     above 3:1. */
+  --chart-1: #f54900;
+  --chart-2: #009689;
+  --chart-3: #4a3aa7;
+
+  --grid: rgba(10, 10, 10, 0.07);
+  --axis: rgba(10, 10, 10, 0.22);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    font-family: var(--font-exo), sans-serif;
+    font-size: 12px;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  /* House rule from payroll-ui: display text is uppercase. Inputs are exempt so
+     users can read what they typed. Numeric readouts are unaffected. */
+  * {
+    text-transform: uppercase;
+  }
+
+  input,
+  textarea,
+  select {
+    text-transform: none !important;
+  }
+}
+
+@layer utilities {
+  /* Tabular figures everywhere a number can change under the reader. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fadeInUp {
+    animation: fadeInUp 0.3s ease-out;
+  }
+}
+
+/* AdminLTE-like tables, same as payroll-ui */
+.table {
+  width: 100%;
+  margin-bottom: 1rem;
+  color: #212529;
+  border-collapse: collapse;
+}
+
+.table-bordered {
+  border: 1px solid #dee2e6;
+}
+
+.table-bordered th,
+.table-bordered td {
+  border: 1px solid #dee2e6;
+  padding: 0.5rem 0.75rem;
+  vertical-align: top;
+}
+
+.table-striped tbody tr:nth-of-type(odd) {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

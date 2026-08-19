@@ -46,6 +46,7 @@ devices:
     slave: 7
     tenant: rucha-engineers
     plant: plant01
+    parent: meter11
     registers: &lm1360_wh
       # system aggregates
       voltage:         { address: 42 }
@@ -83,6 +84,7 @@ devices:
     slave: 10
     tenant: rucha-engineers
     plant: plant01
+    parent: meter11
     registers: &lm1360_kwh
       # system aggregates
       voltage:         { address: 42 }
@@ -114,8 +116,80 @@ devices:
       current_thd:     { address: 220 }
       # billed demand
       maximum_demand:  { address: 102 }
+  # meter11 declares no parent, so it is the ROOT — the utility incomer.
   - id: meter11
     slave: 11
     tenant: rucha-engineers
     plant: plant01
     registers: *lm1360_kwh
+
+  # ---- Secure Elite 103 (LED "Elite 100" family) ----------------------------
+  # DIFFERENT BRAND, DIFFERENT MAP. Do NOT reuse the lm1360 anchors.
+  # Source: Secure "Elite 100 and 300 technical reference manual" BGX701-234-R01,
+  # Appendix V. Everything below is FC03 holding registers, 32-bit float.
+  #
+  # THREE THINGS TO VERIFY BEFORE TRUSTING THESE READINGS:
+  #
+  # 1. VARIANT. Only the Elite *103* has Modbus. The 101/102 have no comms,
+  #    104 is pulse output, 105 is alarm output. Check the nameplate.
+  #
+  # 2. ADDRESS BASE. The manual's HEX column and its 4xxxx number differ by one
+  #    (40100 <-> HEX 0064 = 100), so `printed = 40000 + HEX`. Addresses here are
+  #    the HEX value, which yields even addresses as float32 pairs should. If
+  #    voltage does not read ~240, subtract 1 from every address and retry.
+  #
+  # 3. ENERGY UNIT. Register 82 ("Modbus Resolution": 0=none, 1=kilo, 2=mega,
+  #    3=giga) sets the unit of every energy counter. It is READABLE over Modbus,
+  #    so read it rather than inferring from magnitudes — that inference is what
+  #    cost four days of data on the LM1360s. If it reads 1 (kilo), add
+  #    `scale: 1000` to active_energy and reactive_energy to normalise to Wh.
+  #
+  # byteOrder CDAB throughout: the manual specifies "(LSR) - (MSR)", i.e. the
+  # least-significant register first, the opposite of the LM1360's ABCD.
+  - id: meter03
+    slave: 3
+    tenant: rucha-engineers
+    plant: plant01
+    parent: meter11
+    registers: &elite103
+      # system aggregates
+      voltage:         { address: 106, byteOrder: CDAB }   # Vavg
+      current:         { address: 334, byteOrder: CDAB }   # avg current, firmware DPMTC30+
+      active_power:    { address: 148, byteOrder: CDAB }   # 3-phase W
+      apparent_power:  { address: 164, byteOrder: CDAB }   # 3-phase VA
+      reactive_power:  { address: 156, byteOrder: CDAB }   # 3-phase VAr
+      power_factor:    { address: 140, byteOrder: CDAB }   # QA, average PF
+      frequency:       { address: 172, byteOrder: CDAB }
+      # Energy. active = "Active Total - Import"; the manual duplicates 202 as
+      # Export and omits Import, but the 64-bit table (40600 Import, 40604
+      # Export) implies Import is 200. INFERRED — confirm it climbs with load.
+      active_energy:   { address: 200, byteOrder: CDAB }
+      # LAG = inductive. 230 is Lead/capacitive — the counter that reads ~zero on
+      # an inductive plant and made kVAh unusable on the LM1360s. Do not use 230.
+      reactive_energy: { address: 228, byteOrder: CDAB }
+      # per-phase voltage / current
+      voltage_l1:      { address: 100, byteOrder: CDAB }
+      voltage_l2:      { address: 102, byteOrder: CDAB }
+      voltage_l3:      { address: 104, byteOrder: CDAB }
+      current_l1:      { address: 114, byteOrder: CDAB }
+      current_l2:      { address: 116, byteOrder: CDAB }
+      current_l3:      { address: 118, byteOrder: CDAB }
+      # per-phase active power / power factor
+      active_power_l1: { address: 142, byteOrder: CDAB }
+      active_power_l2: { address: 144, byteOrder: CDAB }
+      active_power_l3: { address: 146, byteOrder: CDAB }
+      power_factor_l1: { address: 134, byteOrder: CDAB }
+      power_factor_l2: { address: 136, byteOrder: CDAB }
+      power_factor_l3: { address: 138, byteOrder: CDAB }
+      # power quality (R phase; the schema holds one THD per type)
+      voltage_thd:     { address: 178, byteOrder: CDAB }
+      current_thd:     { address: 184, byteOrder: CDAB }
+      # billed demand — "Demand Apparent Power - Total", VA
+      maximum_demand:  { address: 304, byteOrder: CDAB }
+
+  - id: meter02          # compressor
+    slave: 2
+    tenant: rucha-engineers
+    plant: plant01
+    parent: meter11
+    registers: *elite103

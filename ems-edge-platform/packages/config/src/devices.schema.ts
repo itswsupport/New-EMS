@@ -19,6 +19,12 @@ const deviceSchema = z.object({
   slave: z.number().int().min(1).max(247),
   tenant: z.string().min(1).optional(),
   plant: z.string().min(1).optional(),
+  /**
+   * Read contiguous registers in one request instead of one request each.
+   * Defaults to true. Set false for a meter that mishandles block reads — it
+   * then falls back to one request per register, which is slower but safest.
+   */
+  batch: z.boolean().optional(),
   registers: z.record(z.string(), registerSchema).refine(
     (r) => Object.keys(r).length > 0,
     "device must declare at least one register",

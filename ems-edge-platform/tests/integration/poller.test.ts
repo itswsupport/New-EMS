@@ -15,7 +15,7 @@ const noopHooks: PipelineHooks = {
 };
 
 const device: ResolvedDevice = {
-  id: "meter07", slave: 7, tenant: "rucha", plant: "plant01", functionCode: 3,
+  id: "meter07", slave: 7, tenant: "rucha", plant: "plant01", functionCode: 3, batch: true,
   registers: [
     { metric: "voltage", address: 0, quantity: 2, datatype: "float32", byteOrder: "ABCD", scale: 1 },
     { metric: "current", address: 6, quantity: 2, datatype: "float32", byteOrder: "ABCD", scale: 1 },

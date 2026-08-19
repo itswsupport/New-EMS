@@ -20,6 +20,8 @@ export interface ResolvedDevice {
   readonly tenant: string;
   readonly plant: string;
   readonly functionCode: 3;
+  /** False disables contiguous block reads for this device. Defaults to true. */
+  readonly batch: boolean;
   readonly registers: readonly ResolvedRegister[];
 }
 
@@ -82,6 +84,7 @@ export function loadDeviceConfig(
       tenant: d.tenant ?? defaults.tenant,
       plant: d.plant ?? defaults.plant,
       functionCode: 3,
+      batch: d.batch ?? true,
       registers,
     } satisfies ResolvedDevice;
   });

@@ -1,0 +1,48 @@
+# =============================================================================
+# EMS UI overlay (optional) — Next.js front end over the EMS Postgres.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                  -f docker-compose.grafana.yml -f docker-compose.ui.yml up -d ui
+#
+# Joins ems-net, so it reaches postgres:5432 directly and the database stays
+# unpublished. The connection string carries a password, so it comes from the
+# same mounted secret the app uses — never an environment literal.
+#
+# Unlike the Grafana dashboards (bind-mounted, reload in 30s), this is a built
+# image: UI changes need `docker compose ... build ui`, which needs npm access.
+# =============================================================================
+
+services:
+  ui:
+    build:
+      context: ../ems-ui
+      dockerfile: Dockerfile
+    container_name: ems-ui
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL_FILE: /run/secrets/database_url
+      # Meter topology comes from the same register map the poller uses, so the
+      # two can never disagree about which meter feeds which.
+      DEVICES_YAML: /app/config/devices.yaml
+      NEXT_PUBLIC_TARIFF_INR_PER_KVAH: ${TARIFF_INR_PER_KVAH:-10.5}
+      NEXT_PUBLIC_CONTRACT_KVA: ${CONTRACT_KVA:-300}
+      NEXT_PUBLIC_DEMAND_BLOCK_MINUTES: ${DEMAND_BLOCK_MINUTES:-30}
+      NODE_ENV: production
+    secrets:
+      - database_url
+    volumes:
+      # Read-only, mirroring how the app service mounts it (docker-compose.yml).
+      - ./config/devices.yaml:/app/config/devices.yaml:ro
+    ports:
+      # LAN-reachable so the shop floor can open it, like Grafana on 3300.
+      - "${UI_BIND_IP:-0.0.0.0}:${UI_HOST_PORT:-3500}:3000"
+    networks:
+      - ems-net
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512m

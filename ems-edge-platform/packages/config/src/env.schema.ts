@@ -35,6 +35,12 @@ export const envSchema = z.object({
   POLL_INTERVAL_MS: int(5000, 100),
   MODBUS_TIMEOUT_MS: int(3000, 100),
   MODBUS_MAX_RETRIES: int(2, 0),
+  // Registers are read in contiguous blocks. This is the largest hole a block may
+  // span, in registers. DEFAULT 0 — merge only strictly adjacent registers.
+  // Reading an address a meter does not map can corrupt the WHOLE response: on
+  // 2026-08-14 adding register 78 poisoned active_energy at 72 in the same poll.
+  // Raise this only against a register map you have confirmed, never to guess.
+  MODBUS_MAX_REGISTER_GAP: int(0, 0),
   MODBUS_BYTE_ORDER: z.enum(["ABCD", "BADC", "CDAB", "DCBA"]).default("ABCD"),
   // "tcp" = Modbus TCP/MBAP (gateway in "Modbus TCP to RTU" conversion mode);
   // "rtu" = transparent RTU-over-TCP passthrough. See docs/architecture.md.
