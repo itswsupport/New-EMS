@@ -133,6 +133,7 @@ detail at `debug`. Every line carries `connection_id`/`tenant_id`/`plant_id`/`de
 when in scope.
 
 ## Further docs
+- **[docs/COMMISSIONING-PLAYBOOK.md](docs/COMMISSIONING-PLAYBOOK.md) — add a meter / new plant / new brand: the hard-won lessons (read before touching a live register map)**
 - **[docs/server-setup.md](docs/server-setup.md) — host it on a real plant server (start here to deploy)**
 - [docs/architecture.md](docs/architecture.md) — layers, transport model, DDD
 - [docs/sequence.md](docs/sequence.md) — connection & poll sequence diagrams
