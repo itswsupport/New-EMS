@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Activity, BadgeIndianRupee, Gauge, LayoutGrid, Network, Zap } from "lucide-react";
+import { Activity, BadgeIndianRupee, Gauge, LayoutGrid, Network, Table, Zap } from "lucide-react";
 import MeterTree, { type TreeNode } from "./MeterTree";
 
 const LINKS = [
@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/power-quality", label: "Power Quality", Icon: Gauge },
   { href: "/overview", label: "Overview", Icon: LayoutGrid },
   { href: "/topology", label: "Topology", Icon: Network },
+  { href: "/data", label: "Data Table", Icon: Table },
 ];
 
 export default function Sidebar({
@@ -53,7 +54,8 @@ export default function Sidebar({
 
       <nav className="py-2">
         {LINKS.map(({ href, label, Icon }) => {
-          const active = path === href;
+          const active =
+            href === "/" ? path === "/" : path === href || path.startsWith(href + "/");
           return (
             <Link
               key={href}

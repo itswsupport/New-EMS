@@ -543,3 +543,123 @@ export async function deviceSnapshots(ids: string[]): Promise<DeviceSnapshot[]> 
     samplesToday: Number(r.samples ?? 0),
   }));
 }
+
+/* ---- Raw reading log (the /data/[meter] Data Table page) ------------------
+ *
+ * One row per polled sample, straight from energy_telemetry — for auditing a
+ * reading against the meter LCD and exporting for reports. Columns are DATA
+ * (RAW_COLUMNS), shared by the page header, the cells, the sort whitelist and
+ * the CSV export so the four never drift apart. `sort`/`dir` come from the URL,
+ * so both are resolved through the whitelist before touching SQL (ORDER BY
+ * cannot be parameterised); device id and limits are bound as $1/$2/$3.
+ * ------------------------------------------------------------------------- */
+
+export type RawColKind = "time" | "text" | "num";
+
+export interface RawColumn {
+  /** URL sort key and the property read off each row. */
+  key: string;
+  /** Physical column in energy_telemetry — a FIXED literal, never user input. */
+  col: string;
+  label: string;
+  unit: string;
+  kind: RawColKind;
+  /** Multiply the stored value for display (W→kW, VA→kVA, Wh→kWh…). */
+  scale?: number;
+  decimals?: number;
+}
+
+export const RAW_COLUMNS: readonly RawColumn[] = [
+  { key: "timestamp", col: "timestamp", label: "Time", unit: "IST", kind: "time" },
+  { key: "quality", col: "quality", label: "Quality", unit: "", kind: "text" },
+  { key: "voltage", col: "voltage", label: "V", unit: "V", kind: "num", decimals: 1 },
+  { key: "current", col: "current", label: "A", unit: "A", kind: "num", decimals: 1 },
+  { key: "active_power", col: "active_power", label: "kW", unit: "kW", kind: "num", scale: 0.001, decimals: 2 },
+  { key: "apparent_power", col: "apparent_power", label: "kVA", unit: "kVA", kind: "num", scale: 0.001, decimals: 2 },
+  { key: "reactive_power", col: "reactive_power", label: "kVAr", unit: "kVAr", kind: "num", scale: 0.001, decimals: 2 },
+  { key: "power_factor", col: "power_factor", label: "PF", unit: "", kind: "num", decimals: 3 },
+  { key: "frequency", col: "frequency", label: "Freq", unit: "Hz", kind: "num", decimals: 2 },
+  { key: "active_energy", col: "active_energy", label: "Energy", unit: "kWh", kind: "num", scale: 0.001, decimals: 1 },
+  { key: "voltage_thd", col: "voltage_thd", label: "V-THD", unit: "%", kind: "num", decimals: 1 },
+  { key: "current_thd", col: "current_thd", label: "I-THD", unit: "%", kind: "num", decimals: 1 },
+] as const;
+
+const RAW_BY_KEY = new Map(RAW_COLUMNS.map((c) => [c.key, c]));
+const RAW_SELECT = RAW_COLUMNS.map((c) => `"${c.col}"`).join(", ");
+
+export type SortDir = "asc" | "desc";
+export type RawRow = Record<string, unknown>;
+
+export function isSortKey(v: string | undefined): boolean {
+  return !!v && RAW_BY_KEY.has(v);
+}
+
+/** Scale a stored value for display/export (null-safe). */
+export function rawNumber(col: RawColumn, v: unknown): number | null {
+  const n = num(v);
+  return n === null ? null : n * (col.scale ?? 1);
+}
+
+/** Build a whitelisted ORDER BY. Unknown keys fall back to timestamp DESC. */
+function rawOrderBy(sort: string | undefined, dir: string | undefined): string {
+  const key = isSortKey(sort) ? (sort as string) : "timestamp";
+  const col = RAW_BY_KEY.get(key)!.col;
+  const d: SortDir = dir === "asc" ? "asc" : "desc";
+  // A timestamp tiebreak keeps paging stable when the sort column ties.
+  const tiebreak = col === "timestamp" ? "" : `, "timestamp" DESC`;
+  return `ORDER BY "${col}" ${d}${tiebreak}`;
+}
+
+export interface RawPageOpts {
+  sort?: string;
+  dir?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+/** One page of raw readings for a single device, plus the total row count. */
+export async function telemetryRows(
+  deviceId: string,
+  range: RangeKey,
+  opts: RawPageOpts = {},
+): Promise<{ rows: RawRow[]; total: number }> {
+  const { from } = bounds(range);
+  const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 1), 500);
+  const page = Math.max(opts.page ?? 1, 1);
+
+  const rows = await q<RawRow>(
+    `SELECT ${RAW_SELECT}
+       FROM energy_telemetry
+      WHERE "timestamp" >= ${from} AND device_id = $1
+      ${rawOrderBy(opts.sort, opts.dir)}
+      LIMIT $2 OFFSET $3`,
+    [deviceId, pageSize, (page - 1) * pageSize],
+  );
+  const [c] = await q<{ n: string }>(
+    `SELECT count(*) AS n
+       FROM energy_telemetry
+      WHERE "timestamp" >= ${from} AND device_id = $1`,
+    [deviceId],
+  );
+  return { rows, total: Number(c?.n ?? 0) };
+}
+
+/** The whole range for CSV export (no paging), hard-capped so it can't OOM. */
+export async function telemetryRowsForExport(
+  deviceId: string,
+  range: RangeKey,
+  opts: { sort?: string; dir?: string; cap?: number } = {},
+): Promise<{ rows: RawRow[]; capped: boolean; cap: number }> {
+  const { from } = bounds(range);
+  const cap = Math.min(Math.max(opts.cap ?? 100_000, 1), 500_000);
+  const rows = await q<RawRow>(
+    `SELECT ${RAW_SELECT}
+       FROM energy_telemetry
+      WHERE "timestamp" >= ${from} AND device_id = $1
+      ${rawOrderBy(opts.sort, opts.dir)}
+      LIMIT $2`,
+    [deviceId, cap + 1],
+  );
+  const capped = rows.length > cap;
+  return { rows: capped ? rows.slice(0, cap) : rows, capped, cap };
+}
