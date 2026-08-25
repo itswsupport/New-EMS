@@ -7,12 +7,12 @@ import {
   bucketLabel,
   currentImbalance,
   currentThdByMeter,
-  isRange,
   perPhaseCurrent,
   perPhaseVoltage,
   voltageImbalance,
   voltageThdByMeter,
-  type RangeKey,
+  windowFromParams,
+  windowParams,
 } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -20,38 +20,37 @@ export const dynamic = "force-dynamic";
 export default async function PowerQuality({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; meter?: string }>;
+  searchParams: Promise<{ range?: string; meter?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
-  const range: RangeKey = isRange(sp.range) ? sp.range : "24h";
+  const { win, warnings } = windowFromParams(sp);
+  const winQs = windowParams(sp);
+  const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
     const topo = await getTopology();
     const allIds = topo.allIds;
     const meter = sp.meter && allIds.includes(sp.meter) ? sp.meter : (allIds[0] ?? "");
 
-    const warnings: string[] = [];
-    if (sp.range && !isRange(sp.range))
-      warnings.push(`Ignored unknown range "${sp.range}" — showing 24H.`);
     if (sp.meter && !allIds.includes(sp.meter))
       warnings.push(`Unknown meter "${sp.meter}" — showing ${meter}.`);
 
     const [vthd, ithd, vimb, iimb, phaseV, phaseI] = await Promise.all([
-      voltageThdByMeter(allIds, range),
-      currentThdByMeter(allIds, range),
-      voltageImbalance(allIds, range),
-      currentImbalance(allIds, range),
-      perPhaseVoltage(range, meter),
-      perPhaseCurrent(range, meter),
+      voltageThdByMeter(allIds, win),
+      currentThdByMeter(allIds, win),
+      voltageImbalance(allIds, win),
+      currentImbalance(allIds, win),
+      perPhaseVoltage(win, meter),
+      perPhaseCurrent(win, meter),
     ]);
 
-    const stat = bucketLabel(range);
+    const stat = bucketLabel(win);
 
     return (
       <>
         <Filters
           title="Power Quality"
-          range={range}
+          range={rangeForUi}
           meters={allIds}
           meter={meter}
           warnings={warnings}
@@ -73,6 +72,7 @@ export default async function PowerQuality({
           <Panel title="Voltage THD by meter" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="vthd"
+              tableHref={`/chart/voltage-thd${winQs ? `?${winQs}` : ""}`}
               series={vthd}
               unit="%"
               decimals={2}
@@ -87,6 +87,7 @@ export default async function PowerQuality({
           <Panel title="Current THD by meter" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="ithd"
+              tableHref={`/chart/current-thd${winQs ? `?${winQs}` : ""}`}
               series={ithd}
               unit="%"
               decimals={2}
@@ -101,6 +102,7 @@ export default async function PowerQuality({
           <Panel title="Voltage imbalance by meter" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="vimb"
+              tableHref={`/chart/voltage-imbalance${winQs ? `?${winQs}` : ""}`}
               series={vimb}
               unit="%"
               decimals={2}
@@ -115,6 +117,7 @@ export default async function PowerQuality({
           <Panel title="Current imbalance by meter" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="iimb"
+              tableHref={`/chart/current-imbalance${winQs ? `?${winQs}` : ""}`}
               series={iimb}
               unit="%"
               decimals={2}
@@ -129,6 +132,7 @@ export default async function PowerQuality({
           <Panel title={`Per-phase voltage — ${meter}`} span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="phv"
+              tableHref={`/chart/per-phase-voltage?meter=${meter}${winQs ? `&${winQs}` : ""}`}
               series={phaseV}
               unit="V"
               decimals={1}
@@ -141,6 +145,7 @@ export default async function PowerQuality({
           <Panel title={`Per-phase current — ${meter}`} span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="phi"
+              tableHref={`/chart/per-phase-current?meter=${meter}${winQs ? `&${winQs}` : ""}`}
               series={phaseI}
               unit="A"
               decimals={1}

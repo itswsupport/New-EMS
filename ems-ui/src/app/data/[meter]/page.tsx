@@ -1,66 +1,53 @@
 import { notFound } from "next/navigation";
 import Filters from "@/components/Filters";
+import ServerDataTable from "@/components/ServerDataTable";
+import MeterSelect from "@/components/MeterSelect";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import { fmt, istDateTime } from "@/lib/format";
 import { getTopology, type Topology } from "@/lib/topology";
 import {
-  isRange,
-  RANGES,
+  isSortKey,
   rangeTouchesCorruptWindow,
   RAW_COLUMNS,
   rawNumber,
   telemetryRows,
-  type RangeKey,
-  type RawColumn,
+  windowFromParams,
+  windowParams,
 } from "@/lib/queries";
+import { numCell, textCell, timeCell, type DataColumn, type DataRow } from "@/lib/datatable";
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 50;
-
-/** Segmented-control button, matching Filters' range/meter pills. */
-function seg(active: boolean): string {
-  return `px-2.5 py-1.5 text-[11px] border-r border-border last:border-r-0 transition-colors ${
-    active
-      ? "bg-brand text-white"
-      : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-  }`;
-}
-
-/** A query string that drops empty/undefined values. */
-function qs(patch: Record<string, string | number | undefined>): string {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(patch)) {
-    if (v !== undefined && v !== "") p.set(k, String(v));
-  }
-  const s = p.toString();
-  return s ? `?${s}` : "";
-}
-
-function cellText(col: RawColumn, v: unknown): string {
-  if (col.kind === "time") return istDateTime(v as string);
-  if (col.kind === "text") return v == null ? "—" : String(v);
-  return fmt(rawNumber(col, v), col.decimals ?? 1);
-}
+const PAGE_SIZES = [25, 50, 100, 200];
 
 export default async function DataTablePage({
   params,
   searchParams,
 }: {
   params: Promise<{ meter: string }>;
-  searchParams: Promise<{ range?: string; sort?: string; dir?: string; page?: string }>;
+  searchParams: Promise<{
+    range?: string;
+    from?: string;
+    to?: string;
+    page?: string;
+    pageSize?: string;
+    sort?: string;
+    dir?: string;
+  }>;
 }) {
   const { meter } = await params;
   const sp = await searchParams;
+  const { win, warnings } = windowFromParams(sp);
+  const winQs = windowParams(sp);
+  const rangeForUi = typeof win === "string" ? win : "24h";
 
-  const range: RangeKey = isRange(sp.range) ? sp.range : "24h";
-  const sort = sp.sort ?? "timestamp";
-  const dir: "asc" | "desc" = sp.dir === "asc" ? "asc" : "desc";
   const page = Math.max(Number.parseInt(sp.page ?? "1", 10) || 1, 1);
+  const wanted = Number.parseInt(sp.pageSize ?? "50", 10);
+  const pageSize = PAGE_SIZES.includes(wanted) ? wanted : 50;
+  const sort = isSortKey(sp.sort) ? (sp.sort as string) : "timestamp";
+  const dir: "asc" | "desc" = sp.dir === "asc" ? "asc" : "desc";
 
-  // Topology is resolved before the query try/catch so a bad meter renders a
-  // real 404 (notFound throws a control-flow error we must not swallow).
   let topo: Topology;
   try {
     topo = await getTopology();
@@ -69,47 +56,53 @@ export default async function DataTablePage({
   }
   if (!topo.allIds.includes(meter)) notFound();
 
-  const base = `/data/${meter}`;
-  const warnings =
-    sp.range && !isRange(sp.range)
-      ? [`Ignored unknown range "${sp.range}" — showing 24H.`]
-      : [];
-
   try {
-    const { rows, total } = await telemetryRows(meter, range, {
-      sort,
-      dir,
-      page,
-      pageSize: PAGE_SIZE,
+    const { rows: raw, total } = await telemetryRows(meter, win, { page, pageSize, sort, dir });
+
+    const columns: DataColumn[] = RAW_COLUMNS.map((c) => ({
+      key: c.key,
+      label: c.unit ? `${c.label} (${c.unit})` : c.label,
+      align: c.kind === "num" ? ("right" as const) : ("left" as const),
+      preserveCase: c.kind === "text",
+    }));
+
+    const rows: DataRow[] = raw.map((row) => {
+      const out: DataRow = {};
+      for (const c of RAW_COLUMNS) {
+        const v = row[c.col];
+        if (c.kind === "time") {
+          out[c.key] = timeCell(istDateTime(v as string), new Date(v as string).toISOString());
+        } else if (c.kind === "text") {
+          out[c.key] = textCell(v == null ? "—" : String(v));
+        } else {
+          const n = rawNumber(c, v);
+          out[c.key] = numCell(n, fmt(n, c.decimals ?? 1));
+        }
+      }
+      return out;
     });
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const clampedPage = Math.min(page, totalPages);
+
+    const exportHref = `/data/${meter}/export?${[winQs, `sort=${sort}`, `dir=${dir}`]
+      .filter(Boolean)
+      .join("&")}`;
 
     return (
       <>
-        <Filters title={`Data — ${meter}`} range={range} warnings={warnings} refreshSeconds={30} />
+        <Filters title={`Data — ${meter}`} range={rangeForUi} warnings={warnings} refreshSeconds={30} />
 
-        {/* Path-based meter switcher (Filters' selector is ?meter=, which is a
-            different route model — here the meter lives in the path). */}
         <div className="mb-3 flex items-center gap-2 flex-wrap">
           <span className="text-[10px] text-muted-foreground">Meter</span>
-          <div className="flex border border-border rounded-sm overflow-hidden bg-card">
-            {topo.allIds.map((id) => (
-              <a key={id} href={`/data/${id}${qs({ range, sort, dir })}`} className={seg(id === meter)}>
-                {id}
-              </a>
-            ))}
-          </div>
+          <MeterSelect meters={topo.allIds} value={meter} basePath="/data" query={winQs} />
           {topo.isRoot(meter) && (
             <span className="text-[10px] text-muted-foreground normal-case">incomer / root</span>
           )}
         </div>
 
-        {rangeTouchesCorruptWindow(range) && (
+        {rangeTouchesCorruptWindow(win) && (
           <Notice>
             <span>
               <strong className="font-medium text-foreground">
-                This range includes corrupted energy data
+                This window includes corrupted energy data
               </strong>{" "}
               (14–18 Aug). The <code className="normal-case">Energy (kWh)</code> column is a
               cumulative counter that returns garbage over this window; voltage, current, power,
@@ -119,91 +112,17 @@ export default async function DataTablePage({
         )}
 
         <div className="grid grid-cols-12 gap-3 pb-4">
-          <Panel title={`Raw readings — ${RANGES[range].label}`} span="col-span-12">
-            <div className="overflow-x-auto">
-              <table className="table table-bordered table-striped text-[11px] tnum">
-                <thead>
-                  <tr>
-                    {RAW_COLUMNS.map((c) => {
-                      const active = sort === c.key;
-                      const nextDir = active && dir === "desc" ? "asc" : "desc";
-                      const arrow = active ? (dir === "desc" ? " ▼" : " ▲") : "";
-                      return (
-                        <th key={c.key} className={c.kind === "num" ? "text-right" : "text-left"}>
-                          <a
-                            href={`${base}${qs({ range, sort: c.key, dir: nextDir })}`}
-                            className={active ? "text-foreground" : "hover:text-foreground"}
-                          >
-                            {c.unit ? `${c.label} (${c.unit})` : c.label}
-                            {arrow}
-                          </a>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, i) => (
-                    <tr key={i}>
-                      {RAW_COLUMNS.map((c) => (
-                        <td
-                          key={c.key}
-                          className={
-                            c.kind === "num" ? "text-right" : c.kind === "text" ? "normal-case" : ""
-                          }
-                        >
-                          {cellText(c, row[c.col])}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                  {rows.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan={RAW_COLUMNS.length}
-                        className="text-center text-muted-foreground normal-case"
-                      >
-                        No readings in this range.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mt-3 flex items-center gap-3 flex-wrap text-[11px]">
-              <span className="text-muted-foreground tnum">
-                Page {clampedPage} of {totalPages} · {fmt(total, 0)} rows
-              </span>
-              <div className="flex border border-border rounded-sm overflow-hidden bg-card">
-                {clampedPage > 1 ? (
-                  <a
-                    href={`${base}${qs({ range, sort, dir, page: clampedPage - 1 })}`}
-                    className={seg(false)}
-                  >
-                    ‹ Prev
-                  </a>
-                ) : (
-                  <span className={`${seg(false)} opacity-40 pointer-events-none`}>‹ Prev</span>
-                )}
-                {clampedPage < totalPages ? (
-                  <a
-                    href={`${base}${qs({ range, sort, dir, page: clampedPage + 1 })}`}
-                    className={seg(false)}
-                  >
-                    Next ›
-                  </a>
-                ) : (
-                  <span className={`${seg(false)} opacity-40 pointer-events-none`}>Next ›</span>
-                )}
-              </div>
-              <a
-                href={`${base}/export${qs({ range, sort, dir })}`}
-                className="ml-auto inline-flex items-center gap-1.5 bg-brand text-white px-3 py-1.5 rounded-sm text-[11px] hover:opacity-90"
-              >
-                ↓ Download CSV
-              </a>
-            </div>
+          <Panel title={`Raw readings — ${fmt(total, 0)} rows`} span="col-span-12">
+            <ServerDataTable
+              columns={columns}
+              rows={rows}
+              rowCount={total}
+              page={page}
+              pageSize={pageSize}
+              sort={sort}
+              dir={dir}
+              exportHref={exportHref}
+            />
           </Panel>
         </div>
       </>

@@ -54,6 +54,30 @@ export default function Filters({
     return `${path}?${p.toString()}`;
   };
 
+  // Presets clear any custom from→to so the preset takes over.
+  const presetHref = (k: string) => {
+    const p = new URLSearchParams(params.toString());
+    p.set("range", k);
+    p.delete("from");
+    p.delete("to");
+    return `${path}?${p.toString()}`;
+  };
+
+  const curFrom = params.get("from") ?? "";
+  const curTo = params.get("to") ?? "";
+  const isCustom = !!(curFrom && curTo);
+  const [fromVal, setFromVal] = useState(curFrom);
+  const [toVal, setToVal] = useState(curTo);
+
+  const applyCustom = () => {
+    if (!fromVal || !toVal) return;
+    const p = new URLSearchParams(params.toString());
+    p.set("from", fromVal);
+    p.set("to", toVal);
+    p.delete("range");
+    router.push(`${path}?${p.toString()}`);
+  };
+
   useEffect(() => {
     const tick = () =>
       setNow(
@@ -76,6 +100,12 @@ export default function Filters({
     };
   }, [router, refreshSeconds]);
 
+  // Keep the pickers in sync when the URL window changes (e.g. a preset click).
+  useEffect(() => {
+    setFromVal(curFrom);
+    setToVal(curTo);
+  }, [curFrom, curTo]);
+
   return (
     <div className="sticky top-0 z-10 bg-secondary pt-4 pb-3 mb-3 border-b border-border">
       <div className="flex items-baseline gap-3 flex-wrap">
@@ -96,23 +126,57 @@ export default function Filters({
           <span className="text-[10px] text-muted-foreground">Range</span>
           <div className="flex border border-border rounded-sm overflow-hidden bg-card">
             {RANGE_KEYS.map((k) => (
-              <a key={k} href={href({ range: k })} className={seg(range === k)}>
+              <a key={k} href={presetHref(k)} className={seg(range === k && !isCustom)}>
                 {RANGE_LABEL[k]}
               </a>
             ))}
           </div>
         </div>
 
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[10px] ${isCustom ? "text-brand" : "text-muted-foreground"}`}>
+            Custom
+          </span>
+          <input
+            type="datetime-local"
+            value={fromVal}
+            onChange={(e) => setFromVal(e.target.value)}
+            className="border border-border rounded-sm bg-card px-1.5 py-1 text-[11px]"
+            aria-label="From"
+          />
+          <span className="text-[10px] text-muted-foreground">→</span>
+          <input
+            type="datetime-local"
+            value={toVal}
+            onChange={(e) => setToVal(e.target.value)}
+            className="border border-border rounded-sm bg-card px-1.5 py-1 text-[11px]"
+            aria-label="To"
+          />
+          <button
+            type="button"
+            onClick={applyCustom}
+            disabled={!fromVal || !toVal}
+            className="rounded-sm bg-brand px-2.5 py-1 text-[11px] text-white hover:opacity-90 disabled:opacity-40"
+          >
+            Apply
+          </button>
+        </div>
+
         {meters && meters.length > 0 && (
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-muted-foreground">Meter</span>
-            <div className="flex border border-border rounded-sm overflow-hidden bg-card">
+            <select
+              value={meter ?? ""}
+              onChange={(e) => router.push(href({ meter: e.target.value }))}
+              className="border border-border rounded-sm bg-card px-2 py-1 text-[11px]"
+              aria-label="Meter"
+            >
               {meters.map((m) => (
-                <a key={m} href={href({ meter: m })} className={seg(meter === m)}>
+                <option key={m} value={m}>
                   {m}
-                </a>
+                </option>
               ))}
-            </div>
+            </select>
           </div>
         )}
       </div>

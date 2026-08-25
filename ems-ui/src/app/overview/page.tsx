@@ -6,13 +6,13 @@ import { getTopology } from "@/lib/topology";
 import {
   bucketLabel,
   currentThdByMeter,
-  isRange,
   perPhaseCurrent,
   perPhaseVoltage,
   pfByMeter,
   powerByMeter,
   voltageByMeter,
-  type RangeKey,
+  windowFromParams,
+  windowParams,
 } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -20,38 +20,37 @@ export const dynamic = "force-dynamic";
 export default async function Overview({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; meter?: string }>;
+  searchParams: Promise<{ range?: string; meter?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
-  const range: RangeKey = isRange(sp.range) ? sp.range : "24h";
+  const { win, warnings } = windowFromParams(sp);
+  const winQs = windowParams(sp);
+  const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
     const topo = await getTopology();
     const allIds = topo.allIds;
     const meter = sp.meter && allIds.includes(sp.meter) ? sp.meter : (allIds[0] ?? "");
 
-    const warnings: string[] = [];
-    if (sp.range && !isRange(sp.range))
-      warnings.push(`Ignored unknown range "${sp.range}" — showing 24H.`);
     if (sp.meter && !allIds.includes(sp.meter))
       warnings.push(`Unknown meter "${sp.meter}" — showing ${meter}.`);
 
     const [kw, pf, volts, ithd, phaseV, phaseI] = await Promise.all([
-      powerByMeter(allIds, range),
-      pfByMeter(allIds, range),
-      voltageByMeter(allIds, range),
-      currentThdByMeter(allIds, range),
-      perPhaseVoltage(range, meter),
-      perPhaseCurrent(range, meter),
+      powerByMeter(allIds, win),
+      pfByMeter(allIds, win),
+      voltageByMeter(allIds, win),
+      currentThdByMeter(allIds, win),
+      perPhaseVoltage(win, meter),
+      perPhaseCurrent(win, meter),
     ]);
 
-    const stat = bucketLabel(range);
+    const stat = bucketLabel(win);
 
     return (
       <>
         <Filters
           title="Overview"
-          range={range}
+          range={rangeForUi}
           meters={allIds}
           meter={meter}
           warnings={warnings}
@@ -64,6 +63,7 @@ export default async function Overview({
           >
             <TimeSeries
               id="ov-kw"
+              tableHref={`/chart/power${winQs ? `?${winQs}` : ""}`}
               series={kw}
               unit="kW"
               decimals={0}
@@ -76,6 +76,7 @@ export default async function Overview({
           <Panel title="Power factor by meter" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="ov-pf"
+              tableHref={`/chart/pf${winQs ? `?${winQs}` : ""}`}
               series={pf}
               unit=""
               decimals={3}
@@ -89,6 +90,7 @@ export default async function Overview({
           <Panel title="System average voltage by meter" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="ov-v"
+              tableHref={`/chart/voltage${winQs ? `?${winQs}` : ""}`}
               series={volts}
               unit="V"
               decimals={1}
@@ -101,6 +103,7 @@ export default async function Overview({
           <Panel title="Current THD by meter" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="ov-thd"
+              tableHref={`/chart/current-thd${winQs ? `?${winQs}` : ""}`}
               series={ithd}
               unit="%"
               decimals={2}
@@ -115,6 +118,7 @@ export default async function Overview({
           <Panel title={`Per-phase voltage — ${meter}`} span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="ov-phv"
+              tableHref={`/chart/per-phase-voltage?meter=${meter}${winQs ? `&${winQs}` : ""}`}
               series={phaseV}
               unit="V"
               decimals={1}
@@ -127,6 +131,7 @@ export default async function Overview({
           <Panel title={`Per-phase current — ${meter}`} span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="ov-phi"
+              tableHref={`/chart/per-phase-current?meter=${meter}${winQs ? `&${winQs}` : ""}`}
               series={phaseI}
               unit="A"
               decimals={1}

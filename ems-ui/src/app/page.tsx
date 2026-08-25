@@ -4,20 +4,20 @@ import TimeSeries from "@/components/TimeSeries";
 import Distribution from "@/components/Distribution";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
-import { energy, fmt, power } from "@/lib/format";
+import { apparentEnergy, energy, fmt, power } from "@/lib/format";
 import { getTopology } from "@/lib/topology";
 import {
   bucketLabel,
   distributionFor,
-  isRange,
   metersOnline,
   plantActivePowerKw,
-  plantEnergyTodayKwh,
+  plantEnergyTodayKvah,
   plantPowerFactor,
   plantPowerSeries,
   powerByMeter,
   rangeTouchesCorruptWindow,
-  type RangeKey,
+  windowFromParams,
+  windowParams,
 } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -25,14 +25,12 @@ export const dynamic = "force-dynamic";
 export default async function PlantRollup({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
-  const range: RangeKey = isRange(sp.range) ? sp.range : "24h";
-  const warnings =
-    sp.range && !isRange(sp.range)
-      ? [`Ignored unknown range "${sp.range}" — showing 24H.`]
-      : [];
+  const { win, warnings } = windowFromParams(sp);
+  const winQs = windowParams(sp);
+  const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
     const topo = await getTopology();
@@ -41,18 +39,19 @@ export default async function PlantRollup({
     const mainId = rootIds[0];
     const childIds = topo.childrenOf(mainId).map((n) => n.id);
 
-    const [kw, kwh, pf, meters, plantSeries, byMeter, dist] = await Promise.all([
+    const [kw, energyToday, pf, meters, plantSeries, byMeter, dist] = await Promise.all([
       plantActivePowerKw(rootIds),
-      plantEnergyTodayKwh(rootIds),
+      plantEnergyTodayKvah(rootIds),
       plantPowerFactor(rootIds),
       metersOnline(allIds),
-      plantPowerSeries(rootIds, range),
-      powerByMeter(allIds, range),
-      distributionFor(mainId, childIds, range),
+      plantPowerSeries(rootIds, win),
+      powerByMeter(allIds, win),
+      distributionFor(mainId, childIds, win),
     ]);
 
     const p = power(kw);
-    const e = energy(kwh);
+    const e = apparentEnergy(energyToday.kvah);
+    const eActive = energy(energyToday.kwh);
     const pfTone = pf === null ? "plain" : pf > 0.95 ? "good" : pf >= 0.9 ? "warn" : "crit";
     const pfStatus =
       pf === null
@@ -65,7 +64,7 @@ export default async function PlantRollup({
 
     return (
       <>
-        <Filters title="Plant Rollup" range={range} warnings={warnings} />
+        <Filters title="Plant Rollup" range={rangeForUi} warnings={warnings} />
 
         <Notice>
           <span>
@@ -78,7 +77,7 @@ export default async function PlantRollup({
           </span>
         </Notice>
 
-        {rangeTouchesCorruptWindow(range) && (
+        {rangeTouchesCorruptWindow(win) && (
           <Notice>
             <span>
               <strong className="font-medium text-foreground">
@@ -102,7 +101,7 @@ export default async function PlantRollup({
             label="Plant energy today"
             value={e.value}
             unit={e.unit}
-            sub="Since 00:00 IST — not the UTC day"
+            sub={`${eActive.value} ${eActive.unit} active (÷ PF) · since 00:00 IST`}
           />
           <StatTile
             label="Plant power factor"
@@ -133,22 +132,24 @@ export default async function PlantRollup({
           >
             <TimeSeries
               id="plant-kw"
+              tableHref={`/chart/plant-power${winQs ? `?${winQs}` : ""}`}
               series={plantSeries}
               unit="kW"
               decimals={0}
               height={240}
-              statLabel={bucketLabel(range)}
+              statLabel={bucketLabel(win)}
             />
           </Panel>
 
           <Panel title="Active power by meter — incomer and sub-meters" span="col-span-12">
             <TimeSeries
               id="meter-kw"
+              tableHref={`/chart/power${winQs ? `?${winQs}` : ""}`}
               series={byMeter}
               unit="kW"
               decimals={0}
               height={220}
-              statLabel={bucketLabel(range)}
+              statLabel={bucketLabel(win)}
               showBand={false}
             />
           </Panel>

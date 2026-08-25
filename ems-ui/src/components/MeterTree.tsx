@@ -7,6 +7,8 @@ export type TreeNode = {
   id: string;
   parentId: string | null;
   depth: number;
+  /** Display label; falls back to `id`. */
+  label?: string;
 };
 
 /**
@@ -52,7 +54,7 @@ export default function MeterTree({
     const keep = new Set<string>();
     const byId = new Map(nodes.map((n) => [n.id, n]));
     for (const n of nodes) {
-      if (!n.id.toLowerCase().includes(term)) continue;
+      if (!`${n.id} ${n.label ?? ""}`.toLowerCase().includes(term)) continue;
       let cur: TreeNode | undefined = n;
       while (cur) {
         keep.add(cur.id);
@@ -105,7 +107,7 @@ export default function MeterTree({
             className="flex-1 truncate text-left"
             title={node.parentId ? `Sub-meter of ${node.parentId}` : "Incomer (root)"}
           >
-            {node.id}
+            {node.label ?? node.id}
             {!node.parentId && <span className="ml-1 text-[9px] text-white/60">MAIN</span>}
           </button>
 

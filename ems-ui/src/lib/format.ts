@@ -25,6 +25,14 @@ export function energy(kwh: number | null): { value: string; unit: string } {
     : { value: fmt(kwh, 0), unit: "kWh" };
 }
 
+/** Apparent energy — same scaling as energy(), but kVAh/MVAh. */
+export function apparentEnergy(kvah: number | null): { value: string; unit: string } {
+  if (kvah === null || !Number.isFinite(kvah)) return { value: "—", unit: "kVAh" };
+  return Math.abs(kvah) >= 1000
+    ? { value: fmt(kvah / 1000, 2), unit: "MVAh" }
+    : { value: fmt(kvah, 0), unit: "kVAh" };
+}
+
 /** Indian grouping, no decimals — 1,23,456 not 123,456. */
 export function rupees(v: number | null): string {
   if (v === null || !Number.isFinite(v)) return "—";

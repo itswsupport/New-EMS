@@ -1,17 +1,19 @@
 import Filters from "@/components/Filters";
 import StatTile from "@/components/StatTile";
 import Distribution from "@/components/Distribution";
+import TopologyEditor from "@/components/TopologyEditor";
+import DataTable from "@/components/DataTable";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import { fmt } from "@/lib/format";
-import { getTopology, type MeterNode } from "@/lib/topology";
+import { numCell, textCell, type DataColumn, type DataRow } from "@/lib/datatable";
+import { getManagedDevices, getTopology, type MeterNode } from "@/lib/topology";
 import {
   deviceSnapshots,
   distributionFor,
-  isRange,
   meterList,
+  windowFromParams,
   type DeviceSnapshot,
-  type RangeKey,
 } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -87,14 +89,11 @@ function DeviceRow({
 export default async function Topology({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
-  const range: RangeKey = isRange(sp.range) ? sp.range : "24h";
-  const warnings =
-    sp.range && !isRange(sp.range)
-      ? [`Ignored unknown range "${sp.range}" — showing 24H.`]
-      : [];
+  const { win, warnings } = windowFromParams(sp);
+  const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
     const topo = await getTopology();
@@ -125,7 +124,7 @@ export default async function Topology({
         distributionFor(
           n.id,
           topo.childrenOf(n.id).map((c) => c.id),
-          range,
+          win,
         ),
       ),
     );
@@ -133,9 +132,27 @@ export default async function Topology({
     const maxDepth = Math.max(...ordered.map((n) => n.depth));
     const live = snaps.filter((s) => (s.ageSeconds ?? Infinity) < 120).length;
 
+    // Editor data: every managed device (incl. hidden) + adoptable orphans.
+    const managed = await getManagedDevices();
+    const managedIds = new Set(managed.map((m) => m.id));
+    const adoptable = reporting.filter((id) => !managedIds.has(id));
+
+    const regColumns: DataColumn[] = [
+      { key: "device", label: "Device", align: "left" },
+      { key: "slave", label: "Slave", align: "right" },
+      { key: "registers", label: "Registers (name @ address, ×scale)", align: "left", preserveCase: true },
+    ];
+    const regRows: DataRow[] = ordered.map((n) => ({
+      device: textCell(n.id),
+      slave: numCell(n.slave, n.slave === null ? "—" : String(n.slave)),
+      registers: textCell(
+        n.registers.map((r) => `${r.name}@${r.address}${r.scale ? `×${r.scale}` : ""}`).join("  "),
+      ),
+    }));
+
     return (
       <>
-        <Filters title="Topology" range={range} warnings={warnings} />
+        <Filters title="Topology" range={rangeForUi} warnings={warnings} />
 
         <Notice>
           <span>
@@ -239,37 +256,16 @@ export default async function Topology({
             </Panel>
           ))}
 
+          <Panel
+            title="Edit hierarchy"
+            note="Overlay on devices.yaml — rollup only, poller unaffected"
+            span="col-span-12"
+          >
+            <TopologyEditor devices={managed} orphans={adoptable} />
+          </Panel>
+
           <Panel title="Register map by device" span="col-span-12">
-            <div className="max-h-96 overflow-auto">
-              <table className="table table-bordered table-striped text-[11px] tnum">
-                <thead>
-                  <tr>
-                    <th className="text-left">Device</th>
-                    <th className="text-right">Slave</th>
-                    <th className="text-left">Registers (name @ address, ×scale)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ordered.map((n) => (
-                    <tr key={n.id}>
-                      <td style={{ paddingLeft: 8 + n.depth * 14 }}>{n.id}</td>
-                      <td className="text-right">{n.slave ?? "—"}</td>
-                      <td className="normal-case leading-relaxed">
-                        {n.registers.map((r) => (
-                          <span
-                            key={r.name}
-                            className="mr-2 inline-block whitespace-nowrap text-muted-foreground"
-                          >
-                            {r.name}@{r.address}
-                            {r.scale ? `×${r.scale}` : ""}
-                          </span>
-                        ))}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable columns={regColumns} rows={regRows} initialPageSize={25} exportName="ems_register_map" />
           </Panel>
         </div>
       </>

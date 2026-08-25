@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { Exo } from "next/font/google";
 import Sidebar from "@/components/Sidebar";
+import MuiProvider from "@/components/MuiProvider";
 import type { TreeNode } from "@/components/MeterTree";
 import { getTopology } from "@/lib/topology";
 import { q, num } from "@/lib/db";
@@ -36,6 +37,7 @@ async function loadTree(): Promise<{
       id: n.id,
       parentId: n.parentId,
       depth: n.depth,
+      label: n.displayName,
     }));
     let live: Record<string, number | null> = {};
     try {
@@ -61,12 +63,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={exo.variable}>
       <body className={`${exo.className} antialiased flex h-screen overflow-hidden`}>
-        <Suspense fallback={<aside className="w-[190px] shrink-0 bg-sidebar" />}>
-          <Sidebar tree={tree} live={live} plant={plant} />
-        </Suspense>
-        <main className="flex-1 overflow-y-auto bg-secondary">
-          <div className="mx-auto max-w-[1680px] px-5 pb-14">{children}</div>
-        </main>
+        <MuiProvider>
+          <Suspense fallback={<aside className="w-[190px] shrink-0 bg-sidebar" />}>
+            <Sidebar tree={tree} live={live} plant={plant} />
+          </Suspense>
+          <main className="flex-1 overflow-y-auto bg-secondary">
+            <div className="mx-auto max-w-[1680px] px-5 pb-14">{children}</div>
+          </main>
+        </MuiProvider>
       </body>
     </html>
   );

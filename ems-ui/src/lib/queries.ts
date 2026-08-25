@@ -28,22 +28,22 @@ export function isRange(v: string | undefined): v is RangeKey {
   return !!v && v in RANGES;
 }
 
-/** Range keys come from a closed enum, never from user text. */
-function bounds(range: RangeKey) {
-  const r = RANGES[range];
-  return { from: r.from as string, bucket: r.bucket as number };
-}
+/* ---- Time window: a preset range OR an explicit from→to span -------------- */
 
-/** Buckets are wide on long ranges, so say which statistic a chart is showing. */
-export function bucketLabel(range: RangeKey): string {
-  const s = RANGES[range].bucket as number;
-  return s < 60 ? `${s}s mean` : s < 3600 ? `${s / 60}-min mean` : `${s / 3600}-hour mean`;
-}
+/** Everything time-bounded takes a Win: either a preset key or a custom span. */
+export type Win = RangeKey | { fromTs: Date; toTs: Date };
 
-/* Energy data destroyed by the 2026-08-14 register probe. Any range overlapping
- * this window shows garbage kWh/kVAh/cost. Power, PF and current are unaffected. */
-export const CORRUPT_FROM = new Date("2026-08-14T05:37:00Z");
-export const CORRUPT_TO = new Date("2026-08-18T04:50:00Z");
+export interface ResolvedWin {
+  /** Full `"timestamp" >= … [AND … <= …]` SQL fragment. Safe: presets are the
+      closed-enum exprs; custom bounds are interpolated from machine-generated
+      ISO strings (a Date, never raw user text). */
+  clause: string;
+  bucket: number;
+  label: string;
+  fromTs: Date;
+  toTs: Date;
+  custom: boolean;
+}
 
 const RANGE_HOURS: Record<RangeKey, number> = {
   "1h": 1,
@@ -54,9 +54,111 @@ const RANGE_HOURS: Record<RangeKey, number> = {
   "30d": 720,
 };
 
-export function rangeTouchesCorruptWindow(range: RangeKey): boolean {
-  const start = new Date(Date.now() - RANGE_HOURS[range] * 3600_000);
-  return start < CORRUPT_TO && new Date() > CORRUPT_FROM;
+/** Bucket width for a custom span, aiming for ~200 points across the chart. */
+function pickBucket(spanSec: number): number {
+  const steps = [30, 60, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 43200, 86400];
+  const target = spanSec / 200;
+  return steps.find((s) => s >= target) ?? 86400;
+}
+
+function istShort(d: Date): string {
+  return d.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/** Resolve a Win to its SQL clause, bucket and display metadata. */
+export function resolveWin(win: Win): ResolvedWin {
+  if (typeof win === "string") {
+    const r = RANGES[win];
+    const toTs = new Date();
+    const fromTs = new Date(toTs.getTime() - RANGE_HOURS[win] * 3600_000);
+    return {
+      clause: `"timestamp" >= ${r.from}`,
+      bucket: r.bucket as number,
+      label: r.label,
+      fromTs,
+      toTs,
+      custom: false,
+    };
+  }
+  const fromISO = win.fromTs.toISOString();
+  const toISO = win.toTs.toISOString();
+  const spanSec = Math.max(60, (win.toTs.getTime() - win.fromTs.getTime()) / 1000);
+  return {
+    clause: `"timestamp" >= '${fromISO}'::timestamptz AND "timestamp" <= '${toISO}'::timestamptz`,
+    bucket: pickBucket(spanSec),
+    label: `${istShort(win.fromTs)} → ${istShort(win.toTs)}`,
+    fromTs: win.fromTs,
+    toTs: win.toTs,
+    custom: true,
+  };
+}
+
+export function winLabel(win: Win): string {
+  return resolveWin(win).label;
+}
+
+/** A `datetime-local` value is IST wall-clock with no zone; anchor it to IST. */
+function parseIstLocal(v: string | undefined): Date | null {
+  if (!v || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}:00+05:30`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Resolve the page's time window from its search params: a valid `from`+`to`
+ * pair wins (custom span), else the `range` preset, else 24h. Anything ignored
+ * is surfaced as a warning rather than failing silently.
+ */
+export function windowFromParams(sp: { range?: string; from?: string; to?: string }): {
+  win: Win;
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  if (sp.from || sp.to) {
+    const fromTs = parseIstLocal(sp.from);
+    const toTs = parseIstLocal(sp.to);
+    if (fromTs && toTs && fromTs < toTs) return { win: { fromTs, toTs }, warnings };
+    warnings.push("Ignored an invalid custom range — showing 24H.");
+  }
+  if (sp.range && !isRange(sp.range)) {
+    warnings.push(`Ignored unknown range "${sp.range}" — showing 24H.`);
+  }
+  return { win: isRange(sp.range) ? sp.range : "24h", warnings };
+}
+
+/** URL query fragment describing the current window, for child-page links. */
+export function windowParams(sp: { range?: string; from?: string; to?: string }): string {
+  const p = new URLSearchParams();
+  if (sp.from && sp.to) {
+    p.set("from", sp.from);
+    p.set("to", sp.to);
+  } else if (sp.range) {
+    p.set("range", sp.range);
+  }
+  return p.toString();
+}
+
+/** Buckets are wide on long ranges, so say which statistic a chart is showing. */
+export function bucketLabel(win: Win): string {
+  const s = resolveWin(win).bucket;
+  return s < 60 ? `${s}s mean` : s < 3600 ? `${s / 60}-min mean` : `${s / 3600}-hour mean`;
+}
+
+/* Energy data destroyed by the 2026-08-14 register probe. Any window overlapping
+ * this shows garbage kWh/kVAh/cost. Power, PF and current are unaffected. */
+export const CORRUPT_FROM = new Date("2026-08-14T05:37:00Z");
+export const CORRUPT_TO = new Date("2026-08-18T04:50:00Z");
+
+export function rangeTouchesCorruptWindow(win: Win): boolean {
+  const { fromTs, toTs } = resolveWin(win);
+  return fromTs < CORRUPT_TO && toTs > CORRUPT_FROM;
 }
 
 /* --------------------------------------------------------------------------- */
@@ -84,10 +186,10 @@ async function multi(
   metricExpr: string,
   valueExpr: string,
   deviceIds: string[],
-  range: RangeKey,
+  win: Win,
 ): Promise<Series[]> {
   if (deviceIds.length === 0) return [];
-  const { from, bucket } = bounds(range);
+  const { clause, bucket } = resolveWin(win);
   const rows = await q<Row>(
     `SELECT to_timestamp(floor(extract(epoch from "timestamp") / ${bucket}) * ${bucket}) AS bucket,
             ${metricExpr} AS metric,
@@ -95,7 +197,7 @@ async function multi(
             min(${valueExpr}) AS lo,
             max(${valueExpr}) AS hi
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = ANY($1)
+      WHERE ${clause} AND device_id = ANY($1)
       GROUP BY 1, 2
       ORDER BY 1, 2`,
     [deviceIds],
@@ -148,6 +250,42 @@ export async function plantEnergyTodayKwh(rootIds: string[]): Promise<number | n
 }
 
 /**
+ * Plant energy today as BOTH active (kWh) and apparent (kVAh). kVAh is the
+ * billing basis, derived per root meter as kWh ÷ **load-weighted** PF
+ * (sum(P)/sum(P/PF)) rather than a simple average — this matches the meter's own
+ * apparent-power register to <0.1% and the integrated apparent energy, whereas a
+ * flat avg(PF) under-reads by ~0.5%. (The reactive register is the wrong counter,
+ * so kVAh is derived, not read.)
+ */
+export async function plantEnergyTodayKvah(
+  rootIds: string[],
+): Promise<{ kwh: number | null; kvah: number | null }> {
+  if (!rootIds.length) return { kwh: null, kvah: null };
+  const rows = await q<{ kwh: string | number | null; lw_pf: string | number | null }>(
+    `SELECT (max(active_energy) - min(active_energy))/1000.0 AS kwh,
+            sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0) AS lw_pf
+       FROM energy_telemetry
+      WHERE "timestamp" >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata')
+                           AT TIME ZONE 'Asia/Kolkata'
+        AND device_id = ANY($1)
+      GROUP BY device_id`,
+    [rootIds],
+  );
+  let kwh = 0;
+  let kvah = 0;
+  let any = false;
+  for (const r of rows) {
+    const k = num(r.kwh);
+    const pf = num(r.lw_pf);
+    if (k === null) continue;
+    any = true;
+    kwh += k;
+    kvah += pf && pf > 0 ? k / pf : k;
+  }
+  return any ? { kwh, kvah } : { kwh: null, kvah: null };
+}
+
+/**
  * 15-minute load-weighted PF over the given devices. Plant PF is genuinely
  * bimodal — roughly a third of samples sit near unity, the rest at 0.87-0.92 —
  * so an instantaneous snapshot swings 0.87 to 0.99 and reads as a fault.
@@ -179,10 +317,10 @@ export async function metersOnline(
 /** Coincident plant load: the summed instantaneous draw of the root set. */
 export async function plantPowerSeries(
   rootIds: string[],
-  range: RangeKey,
+  win: Win,
 ): Promise<Series[]> {
   if (!rootIds.length) return [];
-  const { from, bucket } = bounds(range);
+  const { clause, bucket } = resolveWin(win);
   const rows = await q<{ bucket: Date; kw: string; lo: string; hi: string }>(
     `SELECT bucket, sum(kw) AS kw, sum(lo) AS lo, sum(hi) AS hi FROM (
         SELECT to_timestamp(floor(extract(epoch from "timestamp") / ${bucket}) * ${bucket}) AS bucket,
@@ -191,7 +329,7 @@ export async function plantPowerSeries(
                min(active_power)/1000.0 AS lo,
                max(active_power)/1000.0 AS hi
           FROM energy_telemetry
-         WHERE "timestamp" >= ${from} AND device_id = ANY($1)
+         WHERE ${clause} AND device_id = ANY($1)
          GROUP BY 1, 2) s
       GROUP BY bucket ORDER BY bucket`,
     [rootIds],
@@ -209,51 +347,51 @@ export async function plantPowerSeries(
   ];
 }
 
-export const powerByMeter = (ids: string[], r: RangeKey) =>
-  multi("device_id", "active_power/1000.0", ids, r);
+export const powerByMeter = (ids: string[], w: Win) =>
+  multi("device_id", "active_power/1000.0", ids, w);
 
 /* ---- Overview and power quality ------------------------------------------ */
 
-export const pfByMeter = (ids: string[], r: RangeKey) =>
-  multi("device_id", "power_factor", ids, r);
-export const voltageByMeter = (ids: string[], r: RangeKey) =>
-  multi("device_id", "voltage", ids, r);
-export const currentThdByMeter = (ids: string[], r: RangeKey) =>
-  multi("device_id", "current_thd", ids, r);
-export const voltageThdByMeter = (ids: string[], r: RangeKey) =>
-  multi("device_id", "voltage_thd", ids, r);
+export const pfByMeter = (ids: string[], w: Win) =>
+  multi("device_id", "power_factor", ids, w);
+export const voltageByMeter = (ids: string[], w: Win) =>
+  multi("device_id", "voltage", ids, w);
+export const currentThdByMeter = (ids: string[], w: Win) =>
+  multi("device_id", "current_thd", ids, w);
+export const voltageThdByMeter = (ids: string[], w: Win) =>
+  multi("device_id", "voltage_thd", ids, w);
 
-export const voltageImbalance = (ids: string[], r: RangeKey) =>
+export const voltageImbalance = (ids: string[], w: Win) =>
   multi(
     "device_id",
     `(greatest(voltage_l1,voltage_l2,voltage_l3) - least(voltage_l1,voltage_l2,voltage_l3))
        / nullif((voltage_l1+voltage_l2+voltage_l3)/3.0, 0) * 100`,
     ids,
-    r,
+    w,
   );
 
-export const currentImbalance = (ids: string[], r: RangeKey) =>
+export const currentImbalance = (ids: string[], w: Win) =>
   multi(
     "device_id",
     `(greatest(current_l1,current_l2,current_l3) - least(current_l1,current_l2,current_l3))
        / nullif((current_l1+current_l2+current_l3)/3.0, 0) * 100`,
     ids,
-    r,
+    w,
   );
 
 async function perPhase(
   cols: [string, string, string],
-  range: RangeKey,
+  win: Win,
   meter: string,
 ): Promise<Series[]> {
-  const { from, bucket } = bounds(range);
+  const { clause, bucket } = resolveWin(win);
   const rows = await q<Record<string, unknown>>(
     `SELECT to_timestamp(floor(extract(epoch from "timestamp") / ${bucket}) * ${bucket}) AS bucket,
             avg(${cols[0]}) AS l1, min(${cols[0]}) AS l1lo, max(${cols[0]}) AS l1hi,
             avg(${cols[1]}) AS l2, min(${cols[1]}) AS l2lo, max(${cols[1]}) AS l2hi,
             avg(${cols[2]}) AS l3, min(${cols[2]}) AS l3lo, max(${cols[2]}) AS l3hi
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = $1
+      WHERE ${clause} AND device_id = $1
       GROUP BY 1 ORDER BY 1`,
     [meter],
   );
@@ -271,10 +409,10 @@ async function perPhase(
   ];
 }
 
-export const perPhaseVoltage = (r: RangeKey, m: string) =>
-  perPhase(["voltage_l1", "voltage_l2", "voltage_l3"], r, m);
-export const perPhaseCurrent = (r: RangeKey, m: string) =>
-  perPhase(["current_l1", "current_l2", "current_l3"], r, m);
+export const perPhaseVoltage = (w: Win, m: string) =>
+  perPhase(["voltage_l1", "voltage_l2", "voltage_l3"], w, m);
+export const perPhaseCurrent = (w: Win, m: string) =>
+  perPhase(["current_l1", "current_l2", "current_l3"], w, m);
 
 /**
  * Downside statistics for power factor. A chart about penalty risk should report
@@ -289,16 +427,16 @@ export type PfStat = {
 
 export async function pfStats(
   deviceIds: string[],
-  range: RangeKey,
+  win: Win,
   threshold = 0.9,
 ): Promise<PfStat[]> {
   if (!deviceIds.length) return [];
-  const { from } = bounds(range);
+  const { clause } = resolveWin(win);
   const rows = await q(
     `SELECT device_id, min(power_factor) AS lo, avg(power_factor) AS mean,
             100.0 * count(*) FILTER (WHERE power_factor < $2) / nullif(count(*),0) AS pct_below
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = ANY($1) AND power_factor IS NOT NULL
+      WHERE ${clause} AND device_id = ANY($1) AND power_factor IS NOT NULL
       GROUP BY device_id ORDER BY device_id`,
     [deviceIds, threshold],
   );
@@ -335,13 +473,13 @@ export type Distribution = {
 export async function distributionFor(
   nodeId: string,
   childIds: string[],
-  range: RangeKey,
+  win: Win,
 ): Promise<Distribution> {
-  const { from } = bounds(range);
+  const { clause } = resolveWin(win);
   const rows = await q(
     `SELECT device_id, (max(active_energy) - min(active_energy))/1000.0 AS kwh
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = ANY($1)
+      WHERE ${clause} AND device_id = ANY($1)
       GROUP BY device_id`,
     [[nodeId, ...childIds]],
   );
@@ -389,11 +527,11 @@ export type MeterCost = {
  */
 export async function costByMeter(
   deviceIds: string[],
-  range: RangeKey,
+  win: Win,
   tariff: number,
 ): Promise<MeterCost[]> {
   if (!deviceIds.length) return [];
-  const { from } = bounds(range);
+  const { clause } = resolveWin(win);
   const rows = await q(
     `SELECT device_id,
             (max(active_energy) - min(active_energy))/1000.0 AS kwh,
@@ -401,7 +539,7 @@ export async function costByMeter(
             (max(active_energy) - min(active_energy))/1000.0
               / nullif(avg(power_factor), 0) AS kvah
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = ANY($1)
+      WHERE ${clause} AND device_id = ANY($1)
       GROUP BY device_id ORDER BY device_id`,
     [deviceIds],
   );
@@ -438,7 +576,7 @@ export type DemandResult = {
  */
 export async function coincidentMaxDemand(
   deviceIds: string[],
-  range: RangeKey,
+  win: Win,
   blockMinutes = 30,
 ): Promise<DemandResult> {
   const empty: DemandResult = {
@@ -449,14 +587,14 @@ export async function coincidentMaxDemand(
   };
   if (!deviceIds.length) return empty;
 
-  const { from } = bounds(range);
+  const { clause } = resolveWin(win);
   const secs = blockMinutes * 60;
   const blocks = `
     SELECT to_timestamp(floor(extract(epoch from "timestamp") / ${secs}) * ${secs}) AS blk,
            device_id,
            avg(active_power / nullif(power_factor, 0))/1000.0 AS kva
       FROM energy_telemetry
-     WHERE "timestamp" >= ${from} AND device_id = ANY($1)
+     WHERE ${clause} AND device_id = ANY($1)
      GROUP BY 1, 2`;
 
   const [top] = await q(
@@ -483,8 +621,8 @@ export async function coincidentMaxDemand(
   };
 }
 
-export const reactiveEnergyByMeter = (ids: string[], r: RangeKey) =>
-  multi("device_id", "reactive_energy/1000.0", ids, r);
+export const reactiveEnergyByMeter = (ids: string[], w: Win) =>
+  multi("device_id", "reactive_energy/1000.0", ids, w);
 
 /* ---- Per-device snapshot (Topology section) ------------------------------- */
 
@@ -620,17 +758,17 @@ export interface RawPageOpts {
 /** One page of raw readings for a single device, plus the total row count. */
 export async function telemetryRows(
   deviceId: string,
-  range: RangeKey,
+  win: Win,
   opts: RawPageOpts = {},
 ): Promise<{ rows: RawRow[]; total: number }> {
-  const { from } = bounds(range);
+  const { clause } = resolveWin(win);
   const pageSize = Math.min(Math.max(opts.pageSize ?? 50, 1), 500);
   const page = Math.max(opts.page ?? 1, 1);
 
   const rows = await q<RawRow>(
     `SELECT ${RAW_SELECT}
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = $1
+      WHERE ${clause} AND device_id = $1
       ${rawOrderBy(opts.sort, opts.dir)}
       LIMIT $2 OFFSET $3`,
     [deviceId, pageSize, (page - 1) * pageSize],
@@ -638,7 +776,7 @@ export async function telemetryRows(
   const [c] = await q<{ n: string }>(
     `SELECT count(*) AS n
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = $1`,
+      WHERE ${clause} AND device_id = $1`,
     [deviceId],
   );
   return { rows, total: Number(c?.n ?? 0) };
@@ -647,15 +785,15 @@ export async function telemetryRows(
 /** The whole range for CSV export (no paging), hard-capped so it can't OOM. */
 export async function telemetryRowsForExport(
   deviceId: string,
-  range: RangeKey,
+  win: Win,
   opts: { sort?: string; dir?: string; cap?: number } = {},
 ): Promise<{ rows: RawRow[]; capped: boolean; cap: number }> {
-  const { from } = bounds(range);
+  const { clause } = resolveWin(win);
   const cap = Math.min(Math.max(opts.cap ?? 100_000, 1), 500_000);
   const rows = await q<RawRow>(
     `SELECT ${RAW_SELECT}
        FROM energy_telemetry
-      WHERE "timestamp" >= ${from} AND device_id = $1
+      WHERE ${clause} AND device_id = $1
       ${rawOrderBy(opts.sort, opts.dir)}
       LIMIT $2`,
     [deviceId, cap + 1],

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Dialog from "@mui/material/Dialog";
+import { Maximize2, X } from "lucide-react";
 import type { Series } from "@/lib/queries";
 
 type Threshold = { value: number; label: string; tone?: "warn" | "crit" | "good" };
@@ -75,6 +77,8 @@ export default function TimeSeries({
   statLabel,
   showBand = true,
   id,
+  tableHref,
+  hideExpand = false,
 }: {
   series: Series[];
   unit: string;
@@ -86,11 +90,18 @@ export default function TimeSeries({
   statLabel?: string;
   showBand?: boolean;
   id: string;
+  /** When set, the top "Expand" control opens this dynamic page instead of
+      toggling the table inline — see src/app/chart/[metric]. */
+  tableHref?: string;
+  /** Hide the Expand control entirely — used on the chart page itself, where
+      the chart already sits above its full table. */
+  hideExpand?: boolean;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(760);
   const [hover, setHover] = useState<number | null>(null);
   const [showTable, setShowTable] = useState(false);
+  const [fs, setFs] = useState(false);
 
   useEffect(() => {
     const el = wrap.current;
@@ -197,9 +208,34 @@ export default function TimeSeries({
 
   const hasData = series.some((s) => s.points.some((p) => p.v !== null));
   const unitSuffix = unit ? ` ${unit}` : "";
+  const fsHeight = typeof window !== "undefined" ? Math.max(360, window.innerHeight - 150) : 640;
+
+  const ctrl =
+    "inline-flex items-center gap-1 rounded-sm border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary";
 
   return (
     <>
+      {!hideExpand && (
+        <div className="mb-2 flex justify-end gap-1.5">
+          <button type="button" onClick={() => setFs(true)} title="Full screen" className={ctrl}>
+            <Maximize2 size={11} strokeWidth={2} /> Full screen
+          </button>
+          {tableHref ? (
+            <a href={tableHref} className={ctrl}>
+              Expand ↗
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowTable((v) => !v)}
+              aria-expanded={showTable}
+              className={ctrl}
+            >
+              {showTable ? "Collapse" : "Expand"}
+            </button>
+          )}
+        </div>
+      )}
       <div className="relative w-full" ref={wrap}>
         {!hasData ? (
           <div
@@ -398,19 +434,11 @@ export default function TimeSeries({
           );
         })}
         {statLabel && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="ml-auto text-[10px] text-muted-foreground">
             {statLabel}
             {band ? " · band = min–max" : ""}
           </span>
         )}
-        <button
-          type="button"
-          onClick={() => setShowTable((v) => !v)}
-          aria-expanded={showTable}
-          className="ml-auto rounded-sm border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary"
-        >
-          {showTable ? "Hide table" : "Table"}
-        </button>
       </div>
 
       {showTable && (
@@ -442,6 +470,35 @@ export default function TimeSeries({
             </tbody>
           </table>
         </div>
+      )}
+
+      {!hideExpand && (
+        <Dialog fullScreen open={fs} onClose={() => setFs(false)}>
+          <div className="flex items-center justify-between border-b border-border bg-card px-4 py-2.5">
+            <span className="text-[12px] font-medium text-muted-foreground">
+              {statLabel ? `${statLabel} · ` : ""}Full screen
+            </span>
+            <button type="button" onClick={() => setFs(false)} className={ctrl}>
+              <X size={13} strokeWidth={2} /> Close
+            </button>
+          </div>
+          <div className="bg-card px-5 py-4">
+            {fs && (
+              <TimeSeries
+                series={series}
+                unit={unit}
+                decimals={decimals}
+                height={fsHeight}
+                threshold={threshold}
+                zeroBased={zeroBased}
+                statLabel={statLabel}
+                showBand={showBand}
+                id={`${id}-fs`}
+                hideExpand
+              />
+            )}
+          </div>
+        </Dialog>
       )}
     </>
   );

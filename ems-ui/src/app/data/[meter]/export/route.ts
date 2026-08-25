@@ -1,30 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
+import * as XLSX from "xlsx";
 import { getTopology } from "@/lib/topology";
-import {
-  isRange,
-  RAW_COLUMNS,
-  rawNumber,
-  telemetryRowsForExport,
-  type RangeKey,
-} from "@/lib/queries";
+import { RAW_COLUMNS, rawNumber, telemetryRowsForExport, windowFromParams } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
 const IST = "Asia/Kolkata";
 
-/** "YYYY-MM-DD HH:MM:SS" in IST — sv-SE renders exactly that shape. */
-function csvTimestamp(v: unknown): string {
+/** "YYYY-MM-DD HH:MM:SS" in IST. */
+function istStamp(v: unknown): string {
   return new Date(v as string).toLocaleString("sv-SE", { timeZone: IST });
 }
 
-function csvEscape(s: string): string {
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
 /**
- * CSV of the raw reading log for one meter over the current range/sort. Numbers
- * are unit-converted but WITHOUT thousands separators, so Excel parses them as
- * numbers; the unit lives in the header. UTF-8 BOM so Excel reads it correctly.
+ * Full filtered range as an .xlsx (SheetJS, server-side). Numeric columns are
+ * written as real numbers; the window comes from the same params the page uses,
+ * capped so a huge span can't exhaust memory.
  */
 export async function GET(
   req: NextRequest,
@@ -37,38 +28,43 @@ export async function GET(
     return new NextResponse("Unknown meter", { status: 404 });
   }
 
-  const sp = req.nextUrl.searchParams;
-  const rawRange = sp.get("range") ?? undefined;
-  const range: RangeKey = isRange(rawRange) ? rawRange : "24h";
-  const sort = sp.get("sort") ?? "timestamp";
-  const dir = sp.get("dir") === "asc" ? "asc" : "desc";
+  const q = req.nextUrl.searchParams;
+  const { win } = windowFromParams({
+    range: q.get("range") ?? undefined,
+    from: q.get("from") ?? undefined,
+    to: q.get("to") ?? undefined,
+  });
+  const sort = q.get("sort") ?? "timestamp";
+  const dir = q.get("dir") === "asc" ? "asc" : "desc";
 
-  const { rows, capped, cap } = await telemetryRowsForExport(meter, range, { sort, dir });
+  const { rows, capped, cap } = await telemetryRowsForExport(meter, win, {
+    sort,
+    dir,
+    cap: 100_000,
+  });
 
-  const header = RAW_COLUMNS.map((c) =>
-    csvEscape(c.unit ? `${c.label} (${c.unit})` : c.label),
-  ).join(",");
-
-  const lines = rows.map((row) =>
+  const header = RAW_COLUMNS.map((c) => (c.unit ? `${c.label} (${c.unit})` : c.label));
+  const body: (string | number | null)[][] = rows.map((row) =>
     RAW_COLUMNS.map((c) => {
       const v = row[c.col];
-      if (c.kind === "time") return csvTimestamp(v);
-      if (c.kind === "text") return csvEscape(v == null ? "" : String(v));
-      const n = rawNumber(c, v);
-      return n === null ? "" : n.toFixed(c.decimals ?? 1);
-    }).join(","),
+      if (c.kind === "time") return istStamp(v);
+      if (c.kind === "text") return v == null ? "" : String(v);
+      return rawNumber(c, v);
+    }),
   );
+  const aoa: (string | number | null)[][] = [header, ...body];
+  if (capped) aoa.push([`NOTE: truncated at ${cap} rows — narrow the range for the full set`]);
 
-  let body = "﻿" + header + "\n" + lines.join("\n") + "\n";
-  if (capped) {
-    body += `# NOTE: export truncated at ${cap} rows — narrow the range for a complete extract\n`;
-  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Readings");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-  return new NextResponse(body, {
+  return new NextResponse(new Uint8Array(buf), {
     status: 200,
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="ems_${meter}_${range}.csv"`,
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename="ems_${meter}.xlsx"`,
       "Cache-Control": "no-store",
     },
   });
