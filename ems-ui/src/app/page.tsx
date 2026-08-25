@@ -11,11 +11,12 @@ import {
   distributionFor,
   metersOnline,
   plantActivePowerKw,
-  plantEnergyTodayKvah,
+  plantEnergyKvah,
   plantPowerFactor,
   plantPowerSeries,
   powerByMeter,
   rangeTouchesCorruptWindow,
+  winLabel,
   windowFromParams,
   windowParams,
 } from "@/lib/queries";
@@ -41,7 +42,7 @@ export default async function PlantRollup({
 
     const [kw, energyToday, pf, meters, plantSeries, byMeter, dist] = await Promise.all([
       plantActivePowerKw(rootIds),
-      plantEnergyTodayKvah(rootIds),
+      plantEnergyKvah(rootIds, win),
       plantPowerFactor(rootIds),
       metersOnline(allIds),
       plantPowerSeries(rootIds, win),
@@ -98,10 +99,10 @@ export default async function PlantRollup({
             sub={`Incomer ${mainId}, latest 30s reading`}
           />
           <StatTile
-            label="Plant energy today"
+            label="Plant energy"
             value={e.value}
             unit={e.unit}
-            sub={`${eActive.value} ${eActive.unit} active (÷ PF) · since 00:00 IST`}
+            sub={`${eActive.value} ${eActive.unit} active (÷ PF) · ${winLabel(win)}`}
           />
           <StatTile
             label="Plant power factor"

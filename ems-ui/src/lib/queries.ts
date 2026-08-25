@@ -250,23 +250,24 @@ export async function plantEnergyTodayKwh(rootIds: string[]): Promise<number | n
 }
 
 /**
- * Plant energy today as BOTH active (kWh) and apparent (kVAh). kVAh is the
- * billing basis, derived per root meter as kWh ÷ **load-weighted** PF
- * (sum(P)/sum(P/PF)) rather than a simple average — this matches the meter's own
- * apparent-power register to <0.1% and the integrated apparent energy, whereas a
- * flat avg(PF) under-reads by ~0.5%. (The reactive register is the wrong counter,
- * so kVAh is derived, not read.)
+ * Plant energy over the selected window, as BOTH active (kWh) and apparent
+ * (kVAh). kVAh is the billing basis, derived per root meter as kWh ÷
+ * **load-weighted** PF (sum(P)/sum(P/PF)) rather than a simple average — this
+ * matches the meter's own apparent-power register to <0.1% and the integrated
+ * apparent energy, whereas a flat avg(PF) under-reads by ~0.5%. (The reactive
+ * register is the wrong counter, so kVAh is derived, not read.)
  */
-export async function plantEnergyTodayKvah(
+export async function plantEnergyKvah(
   rootIds: string[],
+  win: Win,
 ): Promise<{ kwh: number | null; kvah: number | null }> {
   if (!rootIds.length) return { kwh: null, kvah: null };
+  const { clause } = resolveWin(win);
   const rows = await q<{ kwh: string | number | null; lw_pf: string | number | null }>(
     `SELECT (max(active_energy) - min(active_energy))/1000.0 AS kwh,
             sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0) AS lw_pf
        FROM energy_telemetry
-      WHERE "timestamp" >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata')
-                           AT TIME ZONE 'Asia/Kolkata'
+      WHERE ${clause}
         AND device_id = ANY($1)
       GROUP BY device_id`,
     [rootIds],
