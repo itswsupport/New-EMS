@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { AppEnv } from "@ems/config";
-import { loadDeviceConfig } from "@ems/config";
+import { resolveDevices } from "./devices.js";
 import { createLogger, type Logger } from "@ems/logger";
 import { Metrics, StatsStore } from "@ems/observability";
 import { InMemoryBatchQueue } from "@ems/queue";
@@ -29,7 +29,7 @@ export interface App {
  * the whole dependency graph and the exact ingestion pipeline:
  *   TCP → Connection → Poller(decode/parse/validate/map) → BatchQueue → Writer → DB
  */
-export function createApp(env: AppEnv): App {
+export async function createApp(env: AppEnv): Promise<App> {
   const logger = createLogger({
     level: env.LOG_LEVEL,
     service: env.SERVICE_NAME,
@@ -38,15 +38,12 @@ export function createApp(env: AppEnv): App {
   const metrics = new Metrics();
   const stats = new StatsStore();
 
-  const devices = loadDeviceConfig(env.DEVICE_CONFIG_PATH, {
-    tenant: env.DEFAULT_TENANT_ID,
-    plant: env.DEFAULT_PLANT_ID,
-    byteOrder: env.MODBUS_BYTE_ORDER,
-  });
-  logger.info({ devices: devices.length }, "device register map loaded");
-
   // --- Persistence side: Writer <- Queue ------------------------------------
   const db: Database = createDatabaseClient(env.DATABASE_URL);
+
+  // Device set: the DB registry is the source of truth; devices.yaml is the
+  // fallback (used until the registry is seeded, or if the DB read fails).
+  const devices = await resolveDevices(env, db, logger);
   const repository = new PrismaTelemetryRepository(db);
   const writer = new DatabaseWriter(
     repository,

@@ -12,7 +12,7 @@ import { createApp } from "./app.js";
  */
 async function bootstrap(): Promise<void> {
   const env = loadEnv();
-  const app = createApp(env);
+  const app = await createApp(env);
 
   let shuttingDown = false;
   const shutdown = async (reason: string, code: number): Promise<void> => {
