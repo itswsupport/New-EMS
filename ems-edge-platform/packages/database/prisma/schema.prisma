@@ -61,8 +61,69 @@ model EnergyTelemetry {
   quality        String   @db.VarChar(16)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  // Multi-plant segregation: rows reference a canonical plant (FK added in
+  // migration 0004). The composite index serves plant-scoped reads.
+  plant          Plant    @relation(fields: [plantId], references: [id])
+
   @@index([deviceId, timestamp], name: "idx_telemetry_device_ts")
   @@index([tenantId, timestamp], name: "idx_telemetry_tenant_ts")
   @@index([plantId, timestamp], name: "idx_telemetry_plant_ts")
+  @@index([plantId, deviceId, timestamp], name: "idx_telemetry_plant_device_ts")
   @@map("energy_telemetry")
+}
+
+/// The group / company that owns one or more plants (top of the hierarchy).
+model Tenant {
+  id        String   @id
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  plants    Plant[]
+
+  @@map("tenant")
+}
+
+/// A physical site. Per-plant commercial config (tariff, contract, tz) lives
+/// here, not in the UI's env, so a new plant configures itself.
+model Plant {
+  id             String   @id
+  tenantId       String   @map("tenant_id")
+  name           String
+  timezone       String   @default("Asia/Kolkata")
+  tariffKvah     Decimal? @map("tariff_kvah") @db.Decimal(10, 4)
+  contractKva    Decimal? @map("contract_kva") @db.Decimal(10, 2)
+  demandBlockMin Int      @default(30) @map("demand_block_min")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant         Tenant            @relation(fields: [tenantId], references: [id])
+  devices        Device[]
+  telemetry      EnergyTelemetry[]
+
+  @@index([tenantId], name: "idx_plant_tenant")
+  @@map("plant")
+}
+
+/// The device registry — the DB source of truth for meters. Folds in both the
+/// devices.yaml list and the former device_topology overlay (parent/rename/
+/// hide/virtual), scoped by (plant_id, device_id). registers is the resolved
+/// Modbus register map.
+model Device {
+  plantId     String   @map("plant_id")
+  deviceId    String   @map("device_id")
+  tenantId    String   @map("tenant_id")
+  slave       Int?
+  parentId    String?  @map("parent_id")
+  displayName String?  @map("display_name")
+  registers   Json     @default("{}") @db.JsonB
+  byteOrder   String?  @map("byte_order")
+  hidden      Boolean  @default(false)
+  isVirtual   Boolean  @default(false) @map("is_virtual")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant       Plant    @relation(fields: [plantId], references: [id])
+
+  @@id([plantId, deviceId])
+  @@index([plantId], name: "idx_device_plant")
+  @@map("device")
 }
