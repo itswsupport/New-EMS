@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import * as XLSX from "xlsx";
 import { getTopology } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import { RAW_COLUMNS, rawNumber, telemetryRowsForExport, windowFromParams } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export async function GET(
 ) {
   const { meter } = await params;
 
-  const topo = await getTopology();
+  const { plant } = await getSelectedPlant();
+  const topo = await getTopology(plant);
   if (!topo.allIds.includes(meter)) {
     return new NextResponse("Unknown meter", { status: 404 });
   }

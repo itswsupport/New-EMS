@@ -8,6 +8,7 @@ import DbError from "@/components/DbError";
 import { fmt } from "@/lib/format";
 import { numCell, textCell, type DataColumn, type DataRow } from "@/lib/datatable";
 import { getManagedDevices, getTopology, type MeterNode } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import {
   deviceSnapshots,
   distributionFor,
@@ -71,6 +72,11 @@ function DeviceRow({
             under {node.parentId}
           </span>
         )}
+        {node.area && (
+          <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[9px] text-muted-foreground normal-case">
+            {node.area}
+          </span>
+        )}
       </div>
 
       <span className="tnum text-right">{fmt(snap?.kw ?? null, 1)} kW</span>
@@ -96,12 +102,13 @@ export default async function Topology({
   const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
-    const topo = await getTopology();
+    const { plant } = await getSelectedPlant();
+    const topo = await getTopology(plant);
     const configured = topo.allIds;
 
     const [snaps, reporting] = await Promise.all([
       deviceSnapshots(configured),
-      meterList(),
+      meterList(plant),
     ]);
     const snapBy = new Map(snaps.map((s) => [s.deviceId, s]));
 
@@ -133,17 +140,19 @@ export default async function Topology({
     const live = snaps.filter((s) => (s.ageSeconds ?? Infinity) < 120).length;
 
     // Editor data: every managed device (incl. hidden) + adoptable orphans.
-    const managed = await getManagedDevices();
+    const managed = await getManagedDevices(plant);
     const managedIds = new Set(managed.map((m) => m.id));
     const adoptable = reporting.filter((id) => !managedIds.has(id));
 
     const regColumns: DataColumn[] = [
       { key: "device", label: "Device", align: "left" },
+      { key: "area", label: "Area", align: "left", preserveCase: true },
       { key: "slave", label: "Slave", align: "right" },
       { key: "registers", label: "Registers (name @ address, ×scale)", align: "left", preserveCase: true },
     ];
     const regRows: DataRow[] = ordered.map((n) => ({
       device: textCell(n.id),
+      area: textCell(n.area ?? "—"),
       slave: numCell(n.slave, n.slave === null ? "—" : String(n.slave)),
       registers: textCell(
         n.registers.map((r) => `${r.name}@${r.address}${r.scale ? `×${r.scale}` : ""}`).join("  "),
@@ -152,7 +161,7 @@ export default async function Topology({
 
     return (
       <>
-        <Filters title="Topology" range={rangeForUi} warnings={warnings} />
+        <Filters title="Device Tree" range={rangeForUi} warnings={warnings} />
 
         <Notice>
           <span>
@@ -258,10 +267,10 @@ export default async function Topology({
 
           <Panel
             title="Edit hierarchy"
-            note="Overlay on devices.yaml — rollup only, poller unaffected"
+            note="Writes the DB device registry — parent, area, label, hide, and new meters"
             span="col-span-12"
           >
-            <TopologyEditor devices={managed} orphans={adoptable} />
+            <TopologyEditor plant={plant} devices={managed} orphans={adoptable} />
           </Panel>
 
           <Panel title="Register map by device" span="col-span-12">

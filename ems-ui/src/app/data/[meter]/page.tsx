@@ -6,6 +6,7 @@ import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import { fmt, istDateTime } from "@/lib/format";
 import { getTopology, type Topology } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import {
   isSortKey,
   rangeTouchesCorruptWindow,
@@ -48,9 +49,10 @@ export default async function DataTablePage({
   const sort = isSortKey(sp.sort) ? (sp.sort as string) : "timestamp";
   const dir: "asc" | "desc" = sp.dir === "asc" ? "asc" : "desc";
 
+  const { plant } = await getSelectedPlant();
   let topo: Topology;
   try {
-    topo = await getTopology();
+    topo = await getTopology(plant);
   } catch (err) {
     return <DbError error={err} />;
   }

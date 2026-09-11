@@ -6,33 +6,32 @@ import { q } from "./db";
 /**
  * The ONLY module that knows how meter topology is stored.
  *
- * The BASE hierarchy is the edge platform's `devices.yaml` (read-only, the
- * poller's config). On top of it we merge a UI-owned OVERLAY held in Postgres
- * (`device_topology`) so the hierarchy can be edited from the dashboard —
- * re-parent, rename (display label only), hide, and add virtual/adopted nodes —
- * without ever rewriting the yaml. `parent` is rollup metadata; the poller never
- * reads it, so editing it cannot affect data collection.
+ * The source of truth is now the Postgres `device` registry (per-plant rows:
+ * parent/rename/hide/virtual + the register map), seeded from devices.yaml by
+ * the edge platform's import-devices script. If the registry is empty or the DB
+ * is unreachable, we fall back to parsing devices.yaml so the dashboard still
+ * renders (single-plant, pre-registry behaviour).
  *
  * A meter with no `parent` is a ROOT: the utility incomer. Its reading already
- * contains everything downstream of it, which is why plant totals sum roots only.
+ * contains everything downstream, which is why plant totals sum roots only.
  */
 
 export type RegisterDef = { name: string; address: number; scale?: number };
 
 export type MeterNode = {
   id: string;
-  /** Display label — defaults to `id`; never used as a key. */
   displayName: string;
   plantId: string;
   tenantId: string;
   parentId: string | null;
-  /** Root-first chain including this node, e.g. ["meter11", "meter07"]. */
+  /** Root-first chain including this node. */
   path: string[];
   depth: number;
   slave: number | null;
   registers: RegisterDef[];
-  /** True for UI-created grouping nodes with no telemetry of their own. */
   isVirtual: boolean;
+  /** Free-text area/zone within the plant (null = unassigned). */
+  area: string | null;
 };
 
 export type Topology = {
@@ -48,17 +47,53 @@ export type Topology = {
   isRoot(id: string): boolean;
 };
 
-type RawDevice = {
-  id?: unknown;
-  parent?: unknown;
-  plant?: unknown;
-  tenant?: unknown;
-  slave?: unknown;
-  registers?: unknown;
+/**
+ * One plant in the registry — the plant selector's source AND the carrier of
+ * that plant's commercial config (tariff/contract/demand block/timezone), so
+ * nothing downstream has to hardcode a rate or a single plant's numbers.
+ */
+export type PlantInfo = {
+  id: string;
+  name: string;
+  tenantId: string;
+  tenantName: string;
+  timezone: string;
+  tariffKvah: number;
+  contractKva: number;
+  demandBlockMin: number;
 };
 
-/** A device before the tree is built (yaml row or overlay-created node). */
-type Entry = {
+/** Fallback commercial config, used only when the DB value is null or we are on
+    the yaml fallback. Real values live in the `plant` table, per plant. */
+export const PLANT_DEFAULTS = {
+  timezone: "Asia/Kolkata",
+  tariffKvah: 10.5,
+  contractKva: 300,
+  demandBlockMin: 30,
+} as const;
+
+export type ManagedDevice = {
+  id: string;
+  displayName: string;
+  parentId: string | null;
+  hidden: boolean;
+  isVirtual: boolean;
+  plantId: string;
+  slave: number | null;
+  area: string | null;
+};
+
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
+export class TopologyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TopologyError";
+  }
+}
+
+/** A device before the tree is built. */
+export type Entry = {
   id: string;
   parentId: string | null;
   plantId: string;
@@ -68,84 +103,62 @@ type Entry = {
   displayName: string;
   hidden: boolean;
   isVirtual: boolean;
+  area: string | null;
 };
 
-export class TopologyError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "TopologyError";
-  }
-}
+/* ---- DB registry (source of truth) ---------------------------------------- */
 
-function yamlPath(): string {
-  return resolve(process.env.DEVICES_YAML ?? "../ems-edge-platform/config/devices.yaml");
-}
+type DeviceRow = {
+  plant_id: string;
+  device_id: string;
+  tenant_id: string;
+  slave: number | null;
+  parent_id: string | null;
+  display_name: string | null;
+  registers: unknown;
+  hidden: boolean;
+  is_virtual: boolean;
+  area: string | null;
+};
 
-const readRegisters = (raw: unknown): RegisterDef[] => {
-  if (!raw || typeof raw !== "object") return [];
-  return Object.entries(raw as Record<string, unknown>)
-    .map(([name, def]) => {
-      const d = (def ?? {}) as { address?: unknown; scale?: unknown };
-      return {
-        name,
-        address: typeof d.address === "number" ? d.address : -1,
-        scale: typeof d.scale === "number" ? d.scale : undefined,
-      };
-    })
-    .filter((r) => r.address >= 0)
+function registersFromJson(j: unknown): RegisterDef[] {
+  if (!Array.isArray(j)) return [];
+  return (j as Array<Record<string, unknown>>)
+    .map((x) => ({
+      name: String(x.metric ?? x.name ?? ""),
+      address: typeof x.address === "number" ? x.address : -1,
+      scale: typeof x.scale === "number" && x.scale !== 1 ? x.scale : undefined,
+    }))
+    .filter((r) => r.name && r.address >= 0)
     .sort((a, b) => a.address - b.address);
-};
-
-/** Parse the yaml device list into base entries (no overlay applied yet). */
-function parseYaml(raw: unknown): Map<string, Entry> {
-  const devices = (raw as { devices?: RawDevice[] } | null)?.devices;
-  if (!Array.isArray(devices) || devices.length === 0) {
-    throw new TopologyError(
-      `No devices found in ${yamlPath()} — expected a top-level "devices:" list.`,
-    );
-  }
-  const out = new Map<string, Entry>();
-  for (const d of devices) {
-    const id = typeof d.id === "string" ? d.id : null;
-    if (!id) throw new TopologyError(`A device entry has no string "id".`);
-    if (out.has(id)) throw new TopologyError(`Duplicate device id "${id}".`);
-    out.set(id, {
-      id,
-      parentId: typeof d.parent === "string" ? d.parent : null,
-      plantId: typeof d.plant === "string" ? d.plant : "plant01",
-      tenantId: typeof d.tenant === "string" ? d.tenant : "unknown",
-      slave: typeof d.slave === "number" ? d.slave : null,
-      registers: readRegisters(d.registers),
-      displayName: id,
-      hidden: false,
-      isVirtual: false,
-    });
-  }
-  return out;
 }
 
-/** Cache the yaml PARSE by mtime; the overlay is merged fresh on every call. */
-const globalForTopology = globalThis as unknown as {
-  emsYaml?: { mtimeMs: number; path: string; value: Map<string, Entry> };
-};
-
-function parseYamlCached(path: string): Map<string, Entry> {
-  let mtimeMs: number;
-  try {
-    mtimeMs = statSync(path).mtimeMs;
-  } catch {
-    throw new TopologyError(
-      `Cannot read the register map at ${path}. Set DEVICES_YAML to point at it (in the container it is mounted at /app/config/devices.yaml).`,
-    );
-  }
-  const cached = globalForTopology.emsYaml;
-  if (cached && cached.path === path && cached.mtimeMs === mtimeMs) return cached.value;
-  const value = parseYaml(parse(readFileSync(path, "utf8")));
-  globalForTopology.emsYaml = { mtimeMs, path, value };
-  return value;
+function rowToEntry(r: DeviceRow): Entry {
+  return {
+    id: r.device_id,
+    parentId: r.parent_id,
+    plantId: r.plant_id,
+    tenantId: r.tenant_id,
+    slave: r.slave,
+    registers: registersFromJson(r.registers),
+    displayName: r.display_name || r.device_id,
+    hidden: r.hidden,
+    isVirtual: r.is_virtual,
+    area: r.area,
+  };
 }
 
-/** Build the tree + run structural validation. Throws on cycle / dangling parent / no root. */
+/** Read device rows from the registry, optionally scoped to one plant. */
+export async function deviceRows(plantId?: string): Promise<DeviceRow[]> {
+  const cols =
+    "plant_id, device_id, tenant_id, slave, parent_id, display_name, registers, hidden, is_virtual, area";
+  return plantId
+    ? q<DeviceRow>(`SELECT ${cols} FROM device WHERE plant_id = $1 ORDER BY device_id`, [plantId])
+    : q<DeviceRow>(`SELECT ${cols} FROM device ORDER BY plant_id, device_id`);
+}
+
+/* ---- Tree building + validation ------------------------------------------- */
+
 function buildTopology(entries: Map<string, Entry>): Topology {
   if (entries.size === 0) throw new TopologyError("No devices in the topology.");
 
@@ -186,6 +199,7 @@ function buildTopology(entries: Map<string, Entry>): Topology {
       slave: e.slave,
       registers: e.registers,
       isVirtual: e.isVirtual,
+      area: e.area,
     };
   });
 
@@ -202,9 +216,7 @@ function buildTopology(entries: Map<string, Entry>): Topology {
 
   const roots = nodes.filter((n) => n.parentId === null).sort((a, b) => a.id.localeCompare(b.id));
   if (roots.length === 0) {
-    throw new TopologyError(
-      `No root meter: every device names a parent, so there is no incomer to total from.`,
-    );
+    throw new TopologyError("No root meter: every device names a parent, so there is no incomer.");
   }
 
   const childrenOf = (id: string) => children.get(id) ?? [];
@@ -233,181 +245,194 @@ function buildTopology(entries: Map<string, Entry>): Topology {
   };
 }
 
-/* ---- Overlay (UI-owned, in Postgres) -------------------------------------- */
-
-export type TopologyOverride = {
-  deviceId: string;
-  parentId: string | null;
-  displayName: string | null;
-  hidden: boolean;
-  isVirtual: boolean;
-};
-
-/** Result of a topology mutation action (kept here, not in the "use server"
-    module, whose exports must all be async functions). */
-export type ActionResult = { ok: true } | { ok: false; error: string };
-
-let tableEnsured = false;
-
-/** Idempotently create the overlay table (the `ems` user owns the schema). */
-export async function ensureTopologyTable(): Promise<void> {
-  if (tableEnsured) return;
-  await q(
-    `CREATE TABLE IF NOT EXISTS device_topology (
-       device_id    text PRIMARY KEY,
-       parent_id    text,
-       display_name text,
-       hidden       boolean NOT NULL DEFAULT false,
-       is_virtual   boolean NOT NULL DEFAULT false,
-       updated_at   timestamptz NOT NULL DEFAULT now()
-     )`,
-  );
-  tableEnsured = true;
-}
-
-/** Read all overrides. Resilient: if the DB is unreachable, returns none so the
-    dashboard still renders the yaml hierarchy. */
-export async function loadOverlay(): Promise<TopologyOverride[]> {
+/** Validate a proposed entry set (used by the editor before it writes). */
+export function validateEntries(entries: Map<string, Entry>): ActionResult {
   try {
-    await ensureTopologyTable();
-    const rows = await q<{
-      device_id: string;
-      parent_id: string | null;
-      display_name: string | null;
-      hidden: boolean;
-      is_virtual: boolean;
-    }>(`SELECT device_id, parent_id, display_name, hidden, is_virtual FROM device_topology`);
-    return rows.map((r) => ({
-      deviceId: r.device_id,
-      parentId: r.parent_id,
-      displayName: r.display_name,
-      hidden: r.hidden,
-      isVirtual: r.is_virtual,
-    }));
-  } catch {
-    return [];
-  }
-}
-
-function mergeOverlay(base: Map<string, Entry>, overrides: TopologyOverride[]): Map<string, Entry> {
-  const entries = new Map<string, Entry>();
-  for (const [id, b] of base) entries.set(id, { ...b, registers: [...b.registers] });
-
-  const ovById = new Map(overrides.map((o) => [o.deviceId, o]));
-
-  // Overlay-only devices (adopted orphans / virtual grouping nodes).
-  for (const o of overrides) {
-    if (!entries.has(o.deviceId)) {
-      entries.set(o.deviceId, {
-        id: o.deviceId,
-        parentId: null,
-        plantId: "plant01",
-        tenantId: "unknown",
-        slave: null,
-        registers: [],
-        displayName: o.deviceId,
-        hidden: false,
-        isVirtual: o.isVirtual,
-      });
-    }
-  }
-
-  // Apply overrides.
-  for (const e of entries.values()) {
-    const o = ovById.get(e.id);
-    if (!o) continue;
-    e.parentId = o.parentId;
-    if (o.displayName) e.displayName = o.displayName;
-    e.hidden = o.hidden;
-    e.isVirtual = e.isVirtual || o.isVirtual;
-  }
-
-  // Drop hidden devices; a child pointing at a now-missing parent becomes a root.
-  const visible = new Map([...entries].filter(([, e]) => !e.hidden));
-  for (const e of visible.values()) {
-    if (e.parentId && !visible.has(e.parentId)) e.parentId = null;
-  }
-  return visible;
-}
-
-/** Would this full overlay set produce a valid tree (no cycle, a root exists,
-    every parent defined)? Used by the mutation actions before persisting. */
-export function validateOverlay(
-  overrides: TopologyOverride[],
-): { ok: true } | { ok: false; error: string } {
-  try {
-    buildTopology(mergeOverlay(parseYamlCached(yamlPath()), overrides));
+    buildTopology(entries);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
 
-export async function getTopology(plantId?: string): Promise<Topology> {
-  const base = parseYamlCached(yamlPath());
-  const overrides = await loadOverlay();
+/* ---- devices.yaml fallback (pre-registry / DB down) ----------------------- */
 
-  let topo: Topology;
+type RawDevice = {
+  id?: unknown;
+  parent?: unknown;
+  plant?: unknown;
+  tenant?: unknown;
+  slave?: unknown;
+  registers?: unknown;
+};
+
+function yamlPath(): string {
+  return resolve(process.env.DEVICES_YAML ?? "../ems-edge-platform/config/devices.yaml");
+}
+
+function readYamlRegisters(raw: unknown): RegisterDef[] {
+  if (!raw || typeof raw !== "object") return [];
+  return Object.entries(raw as Record<string, unknown>)
+    .map(([name, def]) => {
+      const d = (def ?? {}) as { address?: unknown; scale?: unknown };
+      return {
+        name,
+        address: typeof d.address === "number" ? d.address : -1,
+        scale: typeof d.scale === "number" ? d.scale : undefined,
+      };
+    })
+    .filter((r) => r.address >= 0)
+    .sort((a, b) => a.address - b.address);
+}
+
+function parseYaml(raw: unknown): Map<string, Entry> {
+  const devices = (raw as { devices?: RawDevice[] } | null)?.devices;
+  if (!Array.isArray(devices) || devices.length === 0) {
+    throw new TopologyError(`No devices found in ${yamlPath()}.`);
+  }
+  const out = new Map<string, Entry>();
+  for (const d of devices) {
+    const id = typeof d.id === "string" ? d.id : null;
+    if (!id) throw new TopologyError(`A device entry has no string "id".`);
+    out.set(id, {
+      id,
+      parentId: typeof d.parent === "string" ? d.parent : null,
+      plantId: typeof d.plant === "string" ? d.plant : (process.env.DEFAULT_PLANT_ID ?? "plant01"),
+      tenantId: typeof d.tenant === "string" ? d.tenant : "unknown",
+      slave: typeof d.slave === "number" ? d.slave : null,
+      registers: readYamlRegisters(d.registers),
+      displayName: id,
+      hidden: false,
+      isVirtual: false,
+      area: null,
+    });
+  }
+  return out;
+}
+
+const globalForTopology = globalThis as unknown as {
+  emsYaml?: { mtimeMs: number; path: string; value: Map<string, Entry> };
+};
+
+function parseYamlCached(path: string): Map<string, Entry> {
+  const mtimeMs = statSync(path).mtimeMs;
+  const cached = globalForTopology.emsYaml;
+  if (cached && cached.path === path && cached.mtimeMs === mtimeMs) return cached.value;
+  const value = parseYaml(parse(readFileSync(path, "utf8")));
+  globalForTopology.emsYaml = { mtimeMs, path, value };
+  return value;
+}
+
+/* ---- Public API ----------------------------------------------------------- */
+
+export async function getTopology(plantId?: string): Promise<Topology> {
   try {
-    topo = buildTopology(mergeOverlay(base, overrides));
+    const rows = await deviceRows(plantId);
+    if (rows.length > 0) {
+      const entries = new Map<string, Entry>(
+        rows.filter((r) => !r.hidden).map((r) => [r.device_id, rowToEntry(r)]),
+      );
+      // A parent hidden or in another plant becomes a root here.
+      for (const e of entries.values()) {
+        if (e.parentId && !entries.has(e.parentId)) e.parentId = null;
+      }
+      return buildTopology(entries);
+    }
   } catch {
-    // A corrupt overlay must never brick the dashboard — fall back to the yaml base.
-    topo = buildTopology(new Map([...base].map(([id, b]) => [id, { ...b }])));
+    /* registry empty or unreachable — fall back to yaml below */
   }
 
+  const base = parseYamlCached(yamlPath());
+  const topo = buildTopology(new Map([...base].map(([id, b]) => [id, { ...b }])));
   if (!plantId) return topo;
-
-  // Plant scoping is a filter over the same shape, so multi-plant needs no new code.
   const nodes = topo.nodes.filter((n) => n.plantId === plantId);
   const ids = new Set(nodes.map((n) => n.id));
   const roots = nodes.filter((n) => n.parentId === null || !ids.has(n.parentId));
-  return {
-    ...topo,
-    nodes,
-    roots,
-    rootIds: roots.map((n) => n.id),
-    allIds: nodes.map((n) => n.id),
-  };
+  return { ...topo, nodes, roots, rootIds: roots.map((n) => n.id), allIds: nodes.map((n) => n.id) };
 }
 
-export type ManagedDevice = {
-  id: string;
-  displayName: string;
-  parentId: string | null;
-  hidden: boolean;
-  isVirtual: boolean;
-  /** Present in devices.yaml (vs a UI-only virtual/adopted node). */
-  inYaml: boolean;
-};
+/** Plant ids that have at least one device in the registry — i.e. real, set-up
+    plants. Used to choose a sensible default plant (one with data) over an empty
+    placeholder, without hardcoding a specific plant id. */
+export async function plantsWithDevices(): Promise<Set<string>> {
+  try {
+    const rows = await q<{ plant_id: string }>(`SELECT DISTINCT plant_id FROM device`);
+    return new Set(rows.map((r) => r.plant_id));
+  } catch {
+    return new Set();
+  }
+}
 
-/**
- * Every device the editor manages — yaml devices plus overlay rows, INCLUDING
- * hidden ones (so they can be un-hidden). `getTopology` drops hidden; this does
- * not.
- */
-export async function getManagedDevices(): Promise<ManagedDevice[]> {
-  const base = parseYamlCached(yamlPath());
-  const overrides = await loadOverlay();
-  const ovById = new Map(overrides.map((o) => [o.deviceId, o]));
-  const ids = new Set<string>([...base.keys(), ...overrides.map((o) => o.deviceId)]);
-  return [...ids]
-    .map((id) => {
-      const b = base.get(id);
-      const o = ovById.get(id);
-      return {
-        id,
-        displayName: o?.displayName || id,
-        parentId: o ? o.parentId : (b?.parentId ?? null),
-        hidden: o?.hidden ?? false,
-        isVirtual: (o?.isVirtual ?? false) || !b,
-        inYaml: !!b,
-      };
-    })
+/** Every device the editor manages for a plant — INCLUDING hidden ones. */
+export async function getManagedDevices(plantId: string): Promise<ManagedDevice[]> {
+  const rows = await deviceRows(plantId);
+  return rows
+    .map((r) => ({
+      id: r.device_id,
+      displayName: r.display_name || r.device_id,
+      parentId: r.parent_id,
+      hidden: r.hidden,
+      isVirtual: r.is_virtual,
+      plantId: r.plant_id,
+      slave: r.slave,
+      area: r.area,
+    }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** Distinct plants present in the register map — the plant selector's source. */
-export async function listPlants(): Promise<string[]> {
-  const t = await getTopology();
-  return [...new Set(t.nodes.map((n) => n.plantId))].sort();
+type PlantRow = {
+  id: string;
+  name: string;
+  tenant_id: string;
+  tenant_name: string | null;
+  timezone: string | null;
+  tariff_kvah: string | number | null;
+  contract_kva: string | number | null;
+  demand_block_min: number | null;
+};
+
+/** Coalesce a nullable numeric column (pg returns numeric as string) to a default. */
+const numOr = (v: string | number | null, dflt: number): number => {
+  const n = typeof v === "number" ? v : v === null ? NaN : Number(v);
+  return Number.isFinite(n) ? n : dflt;
+};
+
+function rowToPlantInfo(r: PlantRow): PlantInfo {
+  return {
+    id: r.id,
+    name: r.name,
+    tenantId: r.tenant_id,
+    tenantName: r.tenant_name ?? r.tenant_id,
+    timezone: r.timezone ?? PLANT_DEFAULTS.timezone,
+    tariffKvah: numOr(r.tariff_kvah, PLANT_DEFAULTS.tariffKvah),
+    contractKva: numOr(r.contract_kva, PLANT_DEFAULTS.contractKva),
+    demandBlockMin: r.demand_block_min ?? PLANT_DEFAULTS.demandBlockMin,
+  };
+}
+
+/** The plant registry — the plant selector's source and per-plant config (DB,
+    with a yaml fallback that carries only defaults). */
+export async function listPlants(): Promise<PlantInfo[]> {
+  try {
+    const rows = await q<PlantRow>(
+      // Order by the number in the plant name (Plant 1, Plant 2, … Plant 12) so
+      // the selector reads naturally; names without a number fall to the end.
+      `SELECT p.id, p.name, p.tenant_id, t.name AS tenant_name,
+              p.timezone, p.tariff_kvah, p.contract_kva, p.demand_block_min
+         FROM plant p
+         LEFT JOIN tenant t ON t.id = p.tenant_id
+        ORDER BY NULLIF(regexp_replace(p.name, '[^0-9]', '', 'g'), '')::int NULLS LAST, p.name`,
+    );
+    if (rows.length > 0) return rows.map(rowToPlantInfo);
+  } catch {
+    /* no plant table — fall through */
+  }
+  try {
+    const base = parseYamlCached(yamlPath());
+    return [...new Set([...base.values()].map((e) => e.plantId))]
+      .sort()
+      .map((id) => ({ id, name: id, tenantId: "unknown", tenantName: "unknown", ...PLANT_DEFAULTS }));
+  } catch {
+    return [];
+  }
 }

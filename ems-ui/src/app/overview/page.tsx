@@ -3,6 +3,7 @@ import TimeSeries from "@/components/TimeSeries";
 import { Panel } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import { getTopology } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import {
   bucketLabel,
   currentThdByMeter,
@@ -28,7 +29,8 @@ export default async function Overview({
   const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
-    const topo = await getTopology();
+    const { plant } = await getSelectedPlant();
+    const topo = await getTopology(plant);
     const allIds = topo.allIds;
     const meter = sp.meter && allIds.includes(sp.meter) ? sp.meter : (allIds[0] ?? "");
 

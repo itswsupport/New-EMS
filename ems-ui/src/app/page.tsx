@@ -6,6 +6,7 @@ import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import { apparentEnergy, energy, fmt, power } from "@/lib/format";
 import { getTopology } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import {
   bucketLabel,
   distributionFor,
@@ -34,7 +35,8 @@ export default async function PlantRollup({
   const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
-    const topo = await getTopology();
+    const { plant } = await getSelectedPlant();
+    const topo = await getTopology(plant);
     const rootIds = topo.rootIds;
     const allIds = topo.allIds;
     const mainId = rootIds[0];

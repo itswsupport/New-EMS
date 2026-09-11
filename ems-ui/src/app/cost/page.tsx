@@ -7,7 +7,8 @@ import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import { fmt, rupees } from "@/lib/format";
 import { numCell, textCell, type DataColumn, type DataRow } from "@/lib/datatable";
-import { getTopology } from "@/lib/topology";
+import { getTopology, PLANT_DEFAULTS } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import {
   bucketLabel,
   coincidentMaxDemand,
@@ -23,10 +24,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const TARIFF = Number(process.env.NEXT_PUBLIC_TARIFF_INR_PER_KVAH ?? 10.5);
-const CONTRACT = Number(process.env.NEXT_PUBLIC_CONTRACT_KVA ?? 300);
-const BLOCK_MIN = Number(process.env.NEXT_PUBLIC_DEMAND_BLOCK_MINUTES ?? 30);
-
 export default async function CostDemand({
   searchParams,
 }: {
@@ -39,7 +36,12 @@ export default async function CostDemand({
   const spanLabel = winLabel(win);
 
   try {
-    const topo = await getTopology();
+    const { plant, config } = await getSelectedPlant();
+    // Commercial config is per-plant, straight from the plant registry row.
+    const TARIFF = config?.tariffKvah ?? PLANT_DEFAULTS.tariffKvah;
+    const CONTRACT = config?.contractKva ?? PLANT_DEFAULTS.contractKva;
+    const BLOCK_MIN = config?.demandBlockMin ?? PLANT_DEFAULTS.demandBlockMin;
+    const topo = await getTopology(plant);
     const rootIds = topo.rootIds;
     const allIds = topo.allIds;
     const mainId = rootIds[0];

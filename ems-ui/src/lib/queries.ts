@@ -449,9 +449,16 @@ export async function pfStats(
   }));
 }
 
-export async function meterList(): Promise<string[]> {
+/**
+ * Distinct device ids that have written telemetry, scoped to one plant. Used to
+ * find drift between the plant's register map and what is actually reporting, so
+ * it MUST be plant-scoped — otherwise another plant's meters surface here as
+ * bogus "orphans" (device_id is only unique within a plant).
+ */
+export async function meterList(plantId: string): Promise<string[]> {
   const rows = await q<{ device_id: string }>(
-    `SELECT DISTINCT device_id FROM energy_telemetry ORDER BY 1`,
+    `SELECT DISTINCT device_id FROM energy_telemetry WHERE plant_id = $1 ORDER BY 1`,
+    [plantId],
   );
   return rows.map((r) => r.device_id);
 }

@@ -2,26 +2,33 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Activity, BadgeIndianRupee, Gauge, LayoutGrid, Network, Table, Zap } from "lucide-react";
+import { Activity, BadgeIndianRupee, Building2, Gauge, LayoutGrid, Network, Table, Zap } from "lucide-react";
 import MeterTree, { type TreeNode } from "./MeterTree";
+import PlantSelect from "./PlantSelect";
+import type { PlantInfo } from "@/lib/topology";
 
 const LINKS = [
   { href: "/", label: "Plant Rollup", Icon: Activity },
   { href: "/cost", label: "Cost & Demand", Icon: BadgeIndianRupee },
   { href: "/power-quality", label: "Power Quality", Icon: Gauge },
   { href: "/overview", label: "Overview", Icon: LayoutGrid },
-  { href: "/topology", label: "Topology", Icon: Network },
+  { href: "/topology", label: "Device Tree", Icon: Network },
   { href: "/data", label: "Data Table", Icon: Table },
+  { href: "/group", label: "All Plants", Icon: Building2 },
 ];
 
 export default function Sidebar({
   tree = [],
   live = {},
-  plant,
+  plants = [],
+  selectedPlant = "",
+  tenantName = "Rucha Engineers",
 }: {
   tree?: TreeNode[];
   live?: Record<string, number | null>;
-  plant?: string;
+  plants?: PlantInfo[];
+  selectedPlant?: string;
+  tenantName?: string;
 }) {
   const path = usePathname();
   const params = useSearchParams();
@@ -45,11 +52,8 @@ export default function Sidebar({
           <Zap size={16} strokeWidth={2.2} />
           <span className="text-[13px] font-medium tracking-wide">EMS</span>
         </div>
-        <p className="mt-1 text-[10px] leading-tight text-white/75">
-          Rucha Engineers
-          <br />
-          {plant ?? "plant01"}
-        </p>
+        <p className="mt-1 mb-1.5 text-[10px] leading-tight text-white/75">{tenantName}</p>
+        <PlantSelect plants={plants} selected={selectedPlant} />
       </div>
 
       <nav className="py-2">

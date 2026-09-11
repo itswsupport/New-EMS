@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getTopology } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import { isRange, type RangeKey } from "@/lib/queries";
 import { chartBySlug, pivotSeries } from "@/lib/charts";
 
@@ -25,7 +26,8 @@ export async function GET(
   const def = chartBySlug(metric);
   if (!def) return new NextResponse("Unknown chart", { status: 404 });
 
-  const topo = await getTopology();
+  const { plant } = await getSelectedPlant();
+  const topo = await getTopology(plant);
   const sp = req.nextUrl.searchParams;
   const rawRange = sp.get("range") ?? undefined;
   const range: RangeKey = isRange(rawRange) ? rawRange : "24h";

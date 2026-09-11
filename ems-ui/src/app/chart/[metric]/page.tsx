@@ -6,6 +6,7 @@ import { Panel } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import { fmt, istDateTime } from "@/lib/format";
 import { getTopology, type Topology } from "@/lib/topology";
+import { getSelectedPlant } from "@/lib/plant";
 import { bucketLabel, winLabel, windowFromParams } from "@/lib/queries";
 import { chartBySlug, pivotSeries } from "@/lib/charts";
 import { numCell, timeCell, type DataColumn, type DataRow } from "@/lib/datatable";
@@ -29,9 +30,10 @@ export default async function ChartTablePage({
   const rangeForUi = typeof win === "string" ? win : "24h";
   const spanLabel = winLabel(win);
 
+  const { plant } = await getSelectedPlant();
   let topo: Topology;
   try {
-    topo = await getTopology();
+    topo = await getTopology(plant);
   } catch (err) {
     return <DbError error={err} />;
   }
