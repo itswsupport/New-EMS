@@ -116,6 +116,7 @@ model Device {
   displayName String?  @map("display_name")
   registers   Json     @default("{}") @db.JsonB
   byteOrder   String?  @map("byte_order")
+  area        String?
   hidden      Boolean  @default(false)
   isVirtual   Boolean  @default(false) @map("is_virtual")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
