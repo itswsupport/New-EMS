@@ -2,6 +2,7 @@ import Filters from "@/components/Filters";
 import TimeSeries from "@/components/TimeSeries";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
+import EmptyPlant from "@/components/EmptyPlant";
 import { getTopology } from "@/lib/topology";
 import { getSelectedPlant } from "@/lib/plant";
 import {
@@ -29,9 +30,19 @@ export default async function PowerQuality({
   const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
-    const { plant } = await getSelectedPlant();
+    const { plant, config } = await getSelectedPlant();
     const topo = await getTopology(plant);
     const allIds = topo.allIds;
+
+    if (allIds.length === 0) {
+      return (
+        <>
+          <Filters title="Power Quality" range={rangeForUi} warnings={warnings} />
+          <EmptyPlant plantName={config?.name} />
+        </>
+      );
+    }
+
     const meter = sp.meter && allIds.includes(sp.meter) ? sp.meter : (allIds[0] ?? "");
 
     if (sp.meter && !allIds.includes(sp.meter))

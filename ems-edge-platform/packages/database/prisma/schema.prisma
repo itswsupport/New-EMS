@@ -22,7 +22,7 @@ datasource db {
 /// For very high volume, convert to a native time-partitioned / hypertable —
 /// see docs/scaling.md. Indexes below cover the three primary query axes.
 model EnergyTelemetry {
-  id             BigInt   @id @default(autoincrement())
+  id             BigInt   @default(autoincrement())
   deviceId       String   @map("device_id")
   tenantId       String   @map("tenant_id")
   plantId        String   @map("plant_id")
@@ -65,6 +65,9 @@ model EnergyTelemetry {
   // migration 0004). The composite index serves plant-scoped reads.
   plant          Plant    @relation(fields: [plantId], references: [id])
 
+  // Composite PK includes the partition column so the table can become a
+  // TimescaleDB hypertable (migration 0006). `id` stays sequence-backed.
+  @@id([id, timestamp])
   @@index([deviceId, timestamp], name: "idx_telemetry_device_ts")
   @@index([tenantId, timestamp], name: "idx_telemetry_tenant_ts")
   @@index([plantId, timestamp], name: "idx_telemetry_plant_ts")

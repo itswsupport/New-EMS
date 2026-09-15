@@ -1,0 +1,127 @@
+<mxfile host="app.diagrams.net" agent="ems-architecture">
+  <diagram name="EMS Architecture" id="ems-arch-1">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="960" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Rucha EMS — System Architecture (multi-plant IIoT energy monitoring)" style="text;html=1;align=left;verticalAlign=middle;fontSize=17;fontStyle=1;fontColor=#263238;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="900" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== BANDS (background) ===================== -->
+        <mxCell id="bandA" value="FIELD LAYER — per plant site (×12; only Plant 6 live today)" style="rounded=1;fillColor=#E3F2FD;strokeColor=#1565C0;opacity=50;verticalAlign=top;align=left;fontStyle=1;fontSize=13;spacingLeft=10;spacingTop=6;fontColor=#1565C0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="60" width="1120" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="bandB" value="EDGE PLATFORM — ems-edge-platform (one Node/TS stack per plant, DEFAULT_PLANT_ID=plantNN)" style="rounded=1;fillColor=#E8F5E9;strokeColor=#2E7D32;opacity=50;verticalAlign=top;align=left;fontStyle=1;fontSize=13;spacingLeft=10;spacingTop=6;fontColor=#2E7D32;" vertex="1" parent="1">
+          <mxGeometry x="40" y="210" width="1120" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="bandC" value="DATA LAYER — shared Postgres 16 + pgvector (container ems-postgres, network ems-net)" style="rounded=1;fillColor=#FFF3E0;strokeColor=#E65100;opacity=50;verticalAlign=top;align=left;fontStyle=1;fontSize=13;spacingLeft=10;spacingTop=6;fontColor=#E65100;" vertex="1" parent="1">
+          <mxGeometry x="40" y="400" width="1120" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="bandD" value="APPLICATION — ems-ui (Next.js 15 App Router, SSR force-dynamic, MUI, :3400)" style="rounded=1;fillColor=#F3E5F5;strokeColor=#6A1B9A;opacity=50;verticalAlign=top;align=left;fontStyle=1;fontSize=13;spacingLeft=10;spacingTop=6;fontColor=#6A1B9A;" vertex="1" parent="1">
+          <mxGeometry x="40" y="600" width="1120" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="bandE" value="CLIENT" style="rounded=1;fillColor=#ECEFF1;strokeColor=#455A64;opacity=50;verticalAlign=top;align=left;fontStyle=1;fontSize=13;spacingLeft=10;spacingTop=6;fontColor=#455A64;" vertex="1" parent="1">
+          <mxGeometry x="40" y="800" width="1120" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== FIELD ===================== -->
+        <mxCell id="meters" value="Energy meters&#10;RISH LM1360 + other brands&#10;(Modbus RTU slaves, 24 registers)" style="rounded=1;fillColor=#FFFFFF;strokeColor=#1565C0;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="110" y="100" width="290" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway" value="Modbus gateway&#10;X5050 (serial → TCP)" style="rounded=1;fillColor=#FFFFFF;strokeColor=#1565C0;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="480" y="100" width="220" height="62" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== EDGE ===================== -->
+        <mxCell id="listener" value="gateway-listener&#10;Modbus FC03 poller&#10;(TCP :4196, ~5s cadence)" style="rounded=1;fillColor=#FFFFFF;strokeColor=#2E7D32;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="110" y="250" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ingestion" value="ingestion-service&#10;resolveDevices() from DB registry (yaml fallback)&#10;stamps plant_id / tenant_id per record" style="rounded=1;fillColor=#FFFFFF;strokeColor=#2E7D32;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="410" y="250" width="300" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="config" value="Config&#10;env DEFAULT_PLANT_ID / TENANT_ID&#10;devices.yaml (seed + docs only)" style="rounded=1;fillColor=#FFFFFF;strokeColor=#2E7D32;whiteSpace=wrap;html=1;fontSize=11;dashed=0;" vertex="1" parent="1">
+          <mxGeometry x="760" y="250" width="230" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== DATA ===================== -->
+        <mxCell id="registry" value="Registry (source of truth)&#10;tenant → plant → device&#10;(slave, parent_id, registers jsonb, area, hidden)" style="rounded=1;fillColor=#FFFFFF;strokeColor=#E65100;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="110" y="445" width="330" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="telemetry" value="energy_telemetry&#10;time-series, ~2.6M rows / 1.2 GB&#10;plain table + 4 btree idx, FK → plant" style="rounded=1;fillColor=#FFFFFF;strokeColor=#E65100;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="490" y="445" width="290" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="kb" value="plant_knowledge_base&#10;(pgvector / RAG)" style="rounded=1;fillColor=#FFFFFF;strokeColor=#E65100;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="830" y="445" width="200" height="62" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== APP ===================== -->
+        <mxCell id="libs" value="Read layer (lib/)&#10;queries.ts — bucketed rollups&#10;topology.ts — registry + plant list&#10;plant.ts — cookie plant selection" style="rounded=1;fillColor=#FFFFFF;strokeColor=#6A1B9A;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="110" y="645" width="320" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="actions" value="Server actions&#10;topology-actions.ts&#10;addDevice / setParent / setArea /&#10;rename / hide (writes device rows)" style="rounded=1;fillColor=#FFFFFF;strokeColor=#6A1B9A;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="470" y="645" width="290" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="pages" value="Pages (per-plant, scoped)&#10;Plant Rollup · Cost &amp; Demand · Power Quality&#10;Overview · Device Tree · Data Table&#10;All Plants (group) · chart/data dynamic pages" style="rounded=1;fillColor=#FFFFFF;strokeColor=#6A1B9A;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="800" y="645" width="310" height="95" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== CLIENT ===================== -->
+        <mxCell id="browser" value="Browser — dashboards · plant switcher (cookie ems_plant) · Excel export · auto-refresh" style="rounded=1;fillColor=#FFFFFF;strokeColor=#455A64;whiteSpace=wrap;html=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="360" y="828" width="480" height="46" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== CALLOUTS ===================== -->
+        <mxCell id="noteDeploy" value="DEPLOY&#10;host 192.168.100.30 : /opt/New-EMS (git, branch main)&#10;docker-compose · network ems-net · UI container :3400&#10;deploy = git pull on main + prisma migrate deploy + rebuild" style="shape=note;whiteSpace=wrap;html=1;fillColor=#FFFDE7;strokeColor=#F9A825;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="210" width="330" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="noteDev" value="DEV LOOP&#10;local `next dev` :3400 + SSH tunnel&#10;5432 → ems-postgres (container IP drifts)" style="shape=note;whiteSpace=wrap;html=1;fillColor=#FFFDE7;strokeColor=#F9A825;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="60" width="330" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="noteScale" value="SCALE ROADMAP (see docs/timescale-migration.md)&#10;• rollup / continuous-aggregate tables (read speed) — zero-risk first&#10;• TimescaleDB hypertable + compression + retention&#10;• explicit plant_id belt on rollups (cross-plant isolation)&#10;• RLS + non-superuser reader role + real auth" style="shape=note;whiteSpace=wrap;html=1;fillColor=#FCE4EC;strokeColor=#C2185B;fontSize=10;align=left;spacingLeft=8;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="400" width="330" height="150" as="geometry" />
+        </mxCell>
+
+        <!-- ===================== EDGES ===================== -->
+        <mxCell id="e1" value="Modbus RTU" style="endArrow=block;html=1;rounded=1;strokeColor=#546E7A;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="meters" target="gateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="Modbus TCP :4196" style="endArrow=block;html=1;rounded=1;strokeColor=#546E7A;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="gateway" target="listener">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="" style="endArrow=block;html=1;rounded=1;strokeColor=#546E7A;" edge="1" parent="1" source="listener" target="ingestion">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="INSERT telemetry" style="endArrow=block;html=1;rounded=1;strokeColor=#546E7A;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="ingestion" target="telemetry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="import-devices (seed)" style="endArrow=block;html=1;rounded=1;strokeColor=#546E7A;fontSize=10;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="config" target="registry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="resolveDevices (poll set)" style="endArrow=block;html=1;rounded=1;strokeColor=#2E7D32;fontSize=10;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="registry" target="ingestion">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="rollup reads" style="endArrow=block;html=1;rounded=1;strokeColor=#6A1B9A;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="telemetry" target="libs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" value="registry reads" style="endArrow=block;html=1;rounded=1;strokeColor=#6A1B9A;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="registry" target="libs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" value="SSR HTML" style="endArrow=block;html=1;rounded=1;strokeColor=#455A64;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="pages" target="browser">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e10" value="edit meter / topology" style="endArrow=block;html=1;rounded=1;strokeColor=#455A64;fontSize=10;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="browser" target="actions">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e11" value="write device rows" style="endArrow=block;html=1;rounded=1;strokeColor=#C2185B;fontSize=10;labelBackgroundColor=#FFFFFF;dashed=1;" edge="1" parent="1" source="actions" target="registry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" value="feeds" style="endArrow=block;html=1;rounded=1;strokeColor=#6A1B9A;fontSize=10;labelBackgroundColor=#FFFFFF;" edge="1" parent="1" source="libs" target="pages">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

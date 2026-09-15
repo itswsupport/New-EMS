@@ -4,6 +4,7 @@ import TimeSeries from "@/components/TimeSeries";
 import Distribution from "@/components/Distribution";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
+import EmptyPlant from "@/components/EmptyPlant";
 import { apparentEnergy, energy, fmt, power } from "@/lib/format";
 import { getTopology } from "@/lib/topology";
 import { getSelectedPlant } from "@/lib/plant";
@@ -35,8 +36,18 @@ export default async function PlantRollup({
   const rangeForUi = typeof win === "string" ? win : "24h";
 
   try {
-    const { plant } = await getSelectedPlant();
+    const { plant, config } = await getSelectedPlant();
     const topo = await getTopology(plant);
+
+    if (topo.allIds.length === 0) {
+      return (
+        <>
+          <Filters title="Plant Rollup" range={rangeForUi} warnings={warnings} />
+          <EmptyPlant plantName={config?.name} />
+        </>
+      );
+    }
+
     const rootIds = topo.rootIds;
     const allIds = topo.allIds;
     const mainId = rootIds[0];

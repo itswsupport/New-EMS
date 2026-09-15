@@ -5,6 +5,7 @@ import DemandBars from "@/components/DemandBars";
 import DataTable from "@/components/DataTable";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
+import EmptyPlant from "@/components/EmptyPlant";
 import { fmt, rupees } from "@/lib/format";
 import { numCell, textCell, type DataColumn, type DataRow } from "@/lib/datatable";
 import { getTopology, PLANT_DEFAULTS } from "@/lib/topology";
@@ -42,6 +43,16 @@ export default async function CostDemand({
     const CONTRACT = config?.contractKva ?? PLANT_DEFAULTS.contractKva;
     const BLOCK_MIN = config?.demandBlockMin ?? PLANT_DEFAULTS.demandBlockMin;
     const topo = await getTopology(plant);
+
+    if (topo.allIds.length === 0) {
+      return (
+        <>
+          <Filters title="Cost & Demand" range={rangeForUi} warnings={warnings} />
+          <EmptyPlant plantName={config?.name} />
+        </>
+      );
+    }
+
     const rootIds = topo.rootIds;
     const allIds = topo.allIds;
     const mainId = rootIds[0];

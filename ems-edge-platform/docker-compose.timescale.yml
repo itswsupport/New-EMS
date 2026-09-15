@@ -1,0 +1,31 @@
+# =============================================================================
+# TimescaleDB cutover override — see docs/timescale-migration.md.
+#
+# Swaps the postgres service to the timescaledb-ha image (bundles timescaledb +
+# pgvector) on a SEPARATE volume, so the original `pgdata` stays untouched for
+# instant rollback. The app connects by the compose service name `postgres`, so
+# no DATABASE_URL change is needed.
+#
+# Apply ONLY after backing up + preparing to restore into the new volume:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                  -f docker-compose.timescale.yml up -d postgres
+#   # create extensions, restore dump, prisma migrate deploy (0006),
+#   # then: psql -f packages/database/prisma/sql/timescale.sql
+#   # finally bring up the app.
+#
+# Rollback: drop this -f file and `up -d postgres` again — pgdata is intact.
+#
+# NOTE: `!reset` (needs Docker Compose >= 2.24) replaces the base volume mount
+# instead of appending it. On older Compose, edit docker-compose.yml directly.
+# The timescaledb-ha image's PGDATA is /home/postgres/pgdata/data.
+# =============================================================================
+name: ems-edge-platform
+
+volumes:
+  pgdata_ts:
+
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    volumes: !reset
+      - pgdata_ts:/home/postgres/pgdata/data

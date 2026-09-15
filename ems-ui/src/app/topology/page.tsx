@@ -136,7 +136,7 @@ export default async function Topology({
       ),
     );
 
-    const maxDepth = Math.max(...ordered.map((n) => n.depth));
+    const maxDepth = ordered.length ? Math.max(...ordered.map((n) => n.depth)) : -1;
     const live = snaps.filter((s) => (s.ageSeconds ?? Infinity) < 120).length;
 
     // Editor data: every managed device (incl. hidden) + adoptable orphans.
@@ -166,10 +166,10 @@ export default async function Topology({
         <Notice>
           <span>
             <strong className="font-medium text-foreground">
-              Bound directly to the register map.
+              Bound directly to the device registry.
             </strong>{" "}
-            Every row below is a device declared in{" "}
-            <code className="normal-case">config/devices.yaml</code> — the same file the
+            Every row below is a device in this plant&apos;s registry (the{" "}
+            <code className="normal-case">device</code> table) — the same source the
             poller reads — so the hierarchy shown here is the hierarchy the platform
             actually uses. A meter with no parent is an incomer, and its reading already
             contains everything nested under it.
