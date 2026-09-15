@@ -13,12 +13,19 @@
 #   • restart: always — survives reboots and daemon restarts
 #   • production log rotation
 #   • Postgres publishes NO ports (reachable only on ems-net)
+#   • Postgres runs TimescaleDB (hypertable + continuous aggregates) on the
+#     pgdata_ts volume — the permanent home after the 2026-09-15 cutover
+#     (see docs/timescale-migration.md). `!reset` REPLACES the base pgdata mount
+#     rather than appending (needs Docker Compose >= 2.24).
 # =============================================================================
 
 services:
   postgres:
+    image: timescale/timescaledb-ha:pg16
     restart: always
     # Explicitly no `ports:` — never expose the database to the network.
+    volumes: !reset
+      - pgdata_ts:/home/postgres/pgdata/data
     logging:
       driver: "json-file"
       options:
@@ -35,3 +42,8 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+volumes:
+  # TimescaleDB data (post-cutover). The old `pgdata` volume from the base
+  # compose is intentionally left untouched as a rollback point until retired.
+  pgdata_ts:
