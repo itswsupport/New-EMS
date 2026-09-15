@@ -309,10 +309,13 @@ export async function metersOnline(
   deviceIds: string[],
 ): Promise<{ online: number; total: number }> {
   if (!deviceIds.length) return { online: 0, total: 0 };
+  // NOTE: `count(DISTINCT device_id) FILTER (WHERE ...)` mis-plans to 0 on a
+  // TimescaleDB hypertable — put the recency test in the WHERE clause instead of
+  // an aggregate FILTER, which counts correctly across chunks.
   const [r] = await q(
-    `SELECT count(DISTINCT device_id) FILTER (WHERE "timestamp" > now() - interval '60 seconds') AS online
+    `SELECT count(DISTINCT device_id) AS online
        FROM energy_telemetry
-      WHERE "timestamp" > now() - interval '7 days' AND device_id = ANY($1) AND plant_id = $2`,
+      WHERE "timestamp" > now() - interval '60 seconds' AND device_id = ANY($1) AND plant_id = $2`,
     [deviceIds, plantId],
   );
   return { online: Number(r?.online ?? 0), total: deviceIds.length };
