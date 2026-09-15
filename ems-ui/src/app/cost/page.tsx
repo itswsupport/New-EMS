@@ -59,11 +59,11 @@ export default async function CostDemand({
     const childIds = topo.childrenOf(mainId).map((n) => n.id);
 
     const [costs, demand, pf, pfs, reactive] = await Promise.all([
-      costByMeter(allIds, win, TARIFF),
-      coincidentMaxDemand(rootIds, win, BLOCK_MIN),
-      pfByMeter(allIds, win),
-      pfStats(allIds, win),
-      reactiveEnergyByMeter(allIds, win),
+      costByMeter(plant, allIds, win, TARIFF),
+      coincidentMaxDemand(plant, rootIds, win, BLOCK_MIN),
+      pfByMeter(plant, allIds, win),
+      pfStats(plant, allIds, win),
+      reactiveEnergyByMeter(plant, allIds, win),
     ]);
 
     const root = costs.find((c) => c.deviceId === mainId);

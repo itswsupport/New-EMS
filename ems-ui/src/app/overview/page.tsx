@@ -49,12 +49,12 @@ export default async function Overview({
       warnings.push(`Unknown meter "${sp.meter}" — showing ${meter}.`);
 
     const [kw, pf, volts, ithd, phaseV, phaseI] = await Promise.all([
-      powerByMeter(allIds, win),
-      pfByMeter(allIds, win),
-      voltageByMeter(allIds, win),
-      currentThdByMeter(allIds, win),
-      perPhaseVoltage(win, meter),
-      perPhaseCurrent(win, meter),
+      powerByMeter(plant, allIds, win),
+      pfByMeter(plant, allIds, win),
+      voltageByMeter(plant, allIds, win),
+      currentThdByMeter(plant, allIds, win),
+      perPhaseVoltage(plant, win, meter),
+      perPhaseCurrent(plant, win, meter),
     ]);
 
     const stat = bucketLabel(win);

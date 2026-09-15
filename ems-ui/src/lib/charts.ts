@@ -22,6 +22,7 @@ import {
  */
 
 export interface ChartCtx {
+  plantId: string;
   allIds: string[];
   rootIds: string[];
   /** Selected meter — used only by the per-phase charts. */
@@ -40,27 +41,27 @@ export interface ChartDef {
 
 export const CHARTS: readonly ChartDef[] = [
   { slug: "plant-power", title: "Plant total active power", unit: "kW", decimals: 0,
-    load: (r, c) => plantPowerSeries(c.rootIds, r) },
+    load: (r, c) => plantPowerSeries(c.plantId, c.rootIds, r) },
   { slug: "power", title: "Active power by meter", unit: "kW", decimals: 0,
-    load: (r, c) => powerByMeter(c.allIds, r) },
+    load: (r, c) => powerByMeter(c.plantId, c.allIds, r) },
   { slug: "pf", title: "Power factor by meter", unit: "", decimals: 3,
-    load: (r, c) => pfByMeter(c.allIds, r) },
+    load: (r, c) => pfByMeter(c.plantId, c.allIds, r) },
   { slug: "reactive-energy", title: "Reactive energy by meter", unit: "kVArh", decimals: 0,
-    load: (r, c) => reactiveEnergyByMeter(c.allIds, r) },
+    load: (r, c) => reactiveEnergyByMeter(c.plantId, c.allIds, r) },
   { slug: "voltage", title: "System average voltage by meter", unit: "V", decimals: 1,
-    load: (r, c) => voltageByMeter(c.allIds, r) },
+    load: (r, c) => voltageByMeter(c.plantId, c.allIds, r) },
   { slug: "voltage-thd", title: "Voltage THD by meter", unit: "%", decimals: 2,
-    load: (r, c) => voltageThdByMeter(c.allIds, r) },
+    load: (r, c) => voltageThdByMeter(c.plantId, c.allIds, r) },
   { slug: "current-thd", title: "Current THD by meter", unit: "%", decimals: 2,
-    load: (r, c) => currentThdByMeter(c.allIds, r) },
+    load: (r, c) => currentThdByMeter(c.plantId, c.allIds, r) },
   { slug: "voltage-imbalance", title: "Voltage imbalance by meter", unit: "%", decimals: 2,
-    load: (r, c) => voltageImbalance(c.allIds, r) },
+    load: (r, c) => voltageImbalance(c.plantId, c.allIds, r) },
   { slug: "current-imbalance", title: "Current imbalance by meter", unit: "%", decimals: 2,
-    load: (r, c) => currentImbalance(c.allIds, r) },
+    load: (r, c) => currentImbalance(c.plantId, c.allIds, r) },
   { slug: "per-phase-voltage", title: "Per-phase voltage", unit: "V", decimals: 1, needsMeter: true,
-    load: (r, c) => perPhaseVoltage(r, c.meter) },
+    load: (r, c) => perPhaseVoltage(c.plantId, r, c.meter) },
   { slug: "per-phase-current", title: "Per-phase current", unit: "A", decimals: 1, needsMeter: true,
-    load: (r, c) => perPhaseCurrent(r, c.meter) },
+    load: (r, c) => perPhaseCurrent(c.plantId, r, c.meter) },
 ];
 
 const BY_SLUG = new Map(CHARTS.map((c) => [c.slug, c]));

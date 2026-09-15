@@ -49,12 +49,12 @@ export default async function PowerQuality({
       warnings.push(`Unknown meter "${sp.meter}" — showing ${meter}.`);
 
     const [vthd, ithd, vimb, iimb, phaseV, phaseI] = await Promise.all([
-      voltageThdByMeter(allIds, win),
-      currentThdByMeter(allIds, win),
-      voltageImbalance(allIds, win),
-      currentImbalance(allIds, win),
-      perPhaseVoltage(win, meter),
-      perPhaseCurrent(win, meter),
+      voltageThdByMeter(plant, allIds, win),
+      currentThdByMeter(plant, allIds, win),
+      voltageImbalance(plant, allIds, win),
+      currentImbalance(plant, allIds, win),
+      perPhaseVoltage(plant, win, meter),
+      perPhaseCurrent(plant, win, meter),
     ]);
 
     const stat = bucketLabel(win);

@@ -183,6 +183,7 @@ type Row = {
  * window inside it. With per-bucket min/max, max(hi) is the true peak at every zoom.
  */
 async function multi(
+  plantId: string,
   metricExpr: string,
   valueExpr: string,
   deviceIds: string[],
@@ -197,10 +198,10 @@ async function multi(
             min(${valueExpr}) AS lo,
             max(${valueExpr}) AS hi
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1)
+      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
       GROUP BY 1, 2
       ORDER BY 1, 2`,
-    [deviceIds],
+    [deviceIds, plantId],
   );
 
   const byMetric = new Map<string, Point[]>();
@@ -221,20 +222,20 @@ async function multi(
 
 /* ---- Plant rollup (ROOT devices only — see docs/arch.md §4) --------------- */
 
-export async function plantActivePowerKw(rootIds: string[]): Promise<number | null> {
+export async function plantActivePowerKw(plantId: string, rootIds: string[]): Promise<number | null> {
   if (!rootIds.length) return null;
   const [r] = await q(
     `SELECT sum(p)/1000.0 AS kw
        FROM (SELECT DISTINCT ON (device_id) device_id, active_power AS p
                FROM energy_telemetry
-              WHERE "timestamp" > now() - interval '30 seconds' AND device_id = ANY($1)
+              WHERE "timestamp" > now() - interval '30 seconds' AND device_id = ANY($1) AND plant_id = $2
               ORDER BY device_id, "timestamp" DESC) s`,
-    [rootIds],
+    [rootIds, plantId],
   );
   return num(r?.kw);
 }
 
-export async function plantEnergyTodayKwh(rootIds: string[]): Promise<number | null> {
+export async function plantEnergyTodayKwh(plantId: string, rootIds: string[]): Promise<number | null> {
   if (!rootIds.length) return null;
   const [r] = await q(
     `SELECT sum(d)/1000.0 AS kwh
@@ -242,9 +243,9 @@ export async function plantEnergyTodayKwh(rootIds: string[]): Promise<number | n
                FROM energy_telemetry
               WHERE "timestamp" >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata')
                                    AT TIME ZONE 'Asia/Kolkata'
-                AND device_id = ANY($1)
+                AND device_id = ANY($1) AND plant_id = $2
               GROUP BY device_id) s`,
-    [rootIds],
+    [rootIds, plantId],
   );
   return num(r?.kwh);
 }
@@ -258,6 +259,7 @@ export async function plantEnergyTodayKwh(rootIds: string[]): Promise<number | n
  * register is the wrong counter, so kVAh is derived, not read.)
  */
 export async function plantEnergyKvah(
+  plantId: string,
   rootIds: string[],
   win: Win,
 ): Promise<{ kwh: number | null; kvah: number | null }> {
@@ -268,9 +270,9 @@ export async function plantEnergyKvah(
             sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0) AS lw_pf
        FROM energy_telemetry
       WHERE ${clause}
-        AND device_id = ANY($1)
+        AND device_id = ANY($1) AND plant_id = $2
       GROUP BY device_id`,
-    [rootIds],
+    [rootIds, plantId],
   );
   let kwh = 0;
   let kvah = 0;
@@ -291,32 +293,34 @@ export async function plantEnergyKvah(
  * bimodal — roughly a third of samples sit near unity, the rest at 0.87-0.92 —
  * so an instantaneous snapshot swings 0.87 to 0.99 and reads as a fault.
  */
-export async function plantPowerFactor(deviceIds: string[]): Promise<number | null> {
+export async function plantPowerFactor(plantId: string, deviceIds: string[]): Promise<number | null> {
   if (!deviceIds.length) return null;
   const [r] = await q(
     `SELECT sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0) AS pf
        FROM energy_telemetry
-      WHERE "timestamp" > now() - interval '15 minutes' AND device_id = ANY($1)`,
-    [deviceIds],
+      WHERE "timestamp" > now() - interval '15 minutes' AND device_id = ANY($1) AND plant_id = $2`,
+    [deviceIds, plantId],
   );
   return num(r?.pf);
 }
 
 export async function metersOnline(
+  plantId: string,
   deviceIds: string[],
 ): Promise<{ online: number; total: number }> {
   if (!deviceIds.length) return { online: 0, total: 0 };
   const [r] = await q(
     `SELECT count(DISTINCT device_id) FILTER (WHERE "timestamp" > now() - interval '60 seconds') AS online
        FROM energy_telemetry
-      WHERE "timestamp" > now() - interval '7 days' AND device_id = ANY($1)`,
-    [deviceIds],
+      WHERE "timestamp" > now() - interval '7 days' AND device_id = ANY($1) AND plant_id = $2`,
+    [deviceIds, plantId],
   );
   return { online: Number(r?.online ?? 0), total: deviceIds.length };
 }
 
 /** Coincident plant load: the summed instantaneous draw of the root set. */
 export async function plantPowerSeries(
+  plantId: string,
   rootIds: string[],
   win: Win,
 ): Promise<Series[]> {
@@ -330,10 +334,10 @@ export async function plantPowerSeries(
                min(active_power)/1000.0 AS lo,
                max(active_power)/1000.0 AS hi
           FROM energy_telemetry
-         WHERE ${clause} AND device_id = ANY($1)
+         WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
          GROUP BY 1, 2) s
       GROUP BY bucket ORDER BY bucket`,
-    [rootIds],
+    [rootIds, plantId],
   );
   return [
     {
@@ -348,22 +352,23 @@ export async function plantPowerSeries(
   ];
 }
 
-export const powerByMeter = (ids: string[], w: Win) =>
-  multi("device_id", "active_power/1000.0", ids, w);
+export const powerByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "active_power/1000.0", ids, w);
 
 /* ---- Overview and power quality ------------------------------------------ */
 
-export const pfByMeter = (ids: string[], w: Win) =>
-  multi("device_id", "power_factor", ids, w);
-export const voltageByMeter = (ids: string[], w: Win) =>
-  multi("device_id", "voltage", ids, w);
-export const currentThdByMeter = (ids: string[], w: Win) =>
-  multi("device_id", "current_thd", ids, w);
-export const voltageThdByMeter = (ids: string[], w: Win) =>
-  multi("device_id", "voltage_thd", ids, w);
+export const pfByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "power_factor", ids, w);
+export const voltageByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "voltage", ids, w);
+export const currentThdByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "current_thd", ids, w);
+export const voltageThdByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "voltage_thd", ids, w);
 
-export const voltageImbalance = (ids: string[], w: Win) =>
+export const voltageImbalance = (plantId: string, ids: string[], w: Win) =>
   multi(
+    plantId,
     "device_id",
     `(greatest(voltage_l1,voltage_l2,voltage_l3) - least(voltage_l1,voltage_l2,voltage_l3))
        / nullif((voltage_l1+voltage_l2+voltage_l3)/3.0, 0) * 100`,
@@ -371,8 +376,9 @@ export const voltageImbalance = (ids: string[], w: Win) =>
     w,
   );
 
-export const currentImbalance = (ids: string[], w: Win) =>
+export const currentImbalance = (plantId: string, ids: string[], w: Win) =>
   multi(
+    plantId,
     "device_id",
     `(greatest(current_l1,current_l2,current_l3) - least(current_l1,current_l2,current_l3))
        / nullif((current_l1+current_l2+current_l3)/3.0, 0) * 100`,
@@ -381,6 +387,7 @@ export const currentImbalance = (ids: string[], w: Win) =>
   );
 
 async function perPhase(
+  plantId: string,
   cols: [string, string, string],
   win: Win,
   meter: string,
@@ -392,9 +399,9 @@ async function perPhase(
             avg(${cols[1]}) AS l2, min(${cols[1]}) AS l2lo, max(${cols[1]}) AS l2hi,
             avg(${cols[2]}) AS l3, min(${cols[2]}) AS l3lo, max(${cols[2]}) AS l3hi
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = $1
+      WHERE ${clause} AND device_id = $1 AND plant_id = $2
       GROUP BY 1 ORDER BY 1`,
-    [meter],
+    [meter, plantId],
   );
   const at = (k: "l1" | "l2" | "l3") =>
     rows.map((r) => ({
@@ -410,10 +417,10 @@ async function perPhase(
   ];
 }
 
-export const perPhaseVoltage = (w: Win, m: string) =>
-  perPhase(["voltage_l1", "voltage_l2", "voltage_l3"], w, m);
-export const perPhaseCurrent = (w: Win, m: string) =>
-  perPhase(["current_l1", "current_l2", "current_l3"], w, m);
+export const perPhaseVoltage = (plantId: string, w: Win, m: string) =>
+  perPhase(plantId, ["voltage_l1", "voltage_l2", "voltage_l3"], w, m);
+export const perPhaseCurrent = (plantId: string, w: Win, m: string) =>
+  perPhase(plantId, ["current_l1", "current_l2", "current_l3"], w, m);
 
 /**
  * Downside statistics for power factor. A chart about penalty risk should report
@@ -427,6 +434,7 @@ export type PfStat = {
 };
 
 export async function pfStats(
+  plantId: string,
   deviceIds: string[],
   win: Win,
   threshold = 0.9,
@@ -437,9 +445,9 @@ export async function pfStats(
     `SELECT device_id, min(power_factor) AS lo, avg(power_factor) AS mean,
             100.0 * count(*) FILTER (WHERE power_factor < $2) / nullif(count(*),0) AS pct_below
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1) AND power_factor IS NOT NULL
+      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $3 AND power_factor IS NOT NULL
       GROUP BY device_id ORDER BY device_id`,
-    [deviceIds, threshold],
+    [deviceIds, threshold, plantId],
   );
   return rows.map((r) => ({
     deviceId: String(r.device_id),
@@ -479,6 +487,7 @@ export type Distribution = {
  * between meters, while the same comparison on energy is stable.
  */
 export async function distributionFor(
+  plantId: string,
   nodeId: string,
   childIds: string[],
   win: Win,
@@ -487,9 +496,9 @@ export async function distributionFor(
   const rows = await q(
     `SELECT device_id, (max(active_energy) - min(active_energy))/1000.0 AS kwh
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1)
+      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
       GROUP BY device_id`,
-    [[nodeId, ...childIds]],
+    [[nodeId, ...childIds], plantId],
   );
   const kwhOf = (id: string) => num(rows.find((r) => r.device_id === id)?.kwh ?? null);
 
@@ -534,6 +543,7 @@ export type MeterCost = {
  * which is not yet mapped.
  */
 export async function costByMeter(
+  plantId: string,
   deviceIds: string[],
   win: Win,
   tariff: number,
@@ -547,9 +557,9 @@ export async function costByMeter(
             (max(active_energy) - min(active_energy))/1000.0
               / nullif(avg(power_factor), 0) AS kvah
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1)
+      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
       GROUP BY device_id ORDER BY device_id`,
-    [deviceIds],
+    [deviceIds, plantId],
   );
   return rows.map((r) => {
     const kvah = num(r.kvah);
@@ -583,6 +593,7 @@ export type DemandResult = {
  * kVA is derived as kW / PF for consistency with how kVAh is computed elsewhere.
  */
 export async function coincidentMaxDemand(
+  plantId: string,
   deviceIds: string[],
   win: Win,
   blockMinutes = 30,
@@ -602,19 +613,19 @@ export async function coincidentMaxDemand(
            device_id,
            avg(active_power / nullif(power_factor, 0))/1000.0 AS kva
       FROM energy_telemetry
-     WHERE ${clause} AND device_id = ANY($1)
+     WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
      GROUP BY 1, 2`;
 
   const [top] = await q(
     `SELECT blk, sum(kva) AS kva FROM (${blocks}) d
       GROUP BY blk ORDER BY sum(kva) DESC NULLS LAST LIMIT 1`,
-    [deviceIds],
+    [deviceIds, plantId],
   );
 
   const per = await q(
     `SELECT DISTINCT ON (device_id) device_id, blk, kva
        FROM (${blocks}) d ORDER BY device_id, kva DESC NULLS LAST`,
-    [deviceIds],
+    [deviceIds, plantId],
   );
 
   return {
@@ -629,8 +640,8 @@ export async function coincidentMaxDemand(
   };
 }
 
-export const reactiveEnergyByMeter = (ids: string[], w: Win) =>
-  multi("device_id", "reactive_energy/1000.0", ids, w);
+export const reactiveEnergyByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "reactive_energy/1000.0", ids, w);
 
 /* ---- Per-device snapshot (Topology section) ------------------------------- */
 
@@ -651,20 +662,20 @@ export type DeviceSnapshot = {
  * to be in the telemetry table, so a configured meter that has never reported
  * still appears — as a gap, which is the point.
  */
-export async function deviceSnapshots(ids: string[]): Promise<DeviceSnapshot[]> {
+export async function deviceSnapshots(plantId: string, ids: string[]): Promise<DeviceSnapshot[]> {
   if (!ids.length) return [];
   const rows = await q(
     `WITH latest AS (
         SELECT DISTINCT ON (device_id) device_id, "timestamp", active_power, power_factor
           FROM energy_telemetry
-         WHERE "timestamp" > now() - interval '7 days' AND device_id = ANY($1)
+         WHERE "timestamp" > now() - interval '7 days' AND device_id = ANY($1) AND plant_id = $2
          ORDER BY device_id, "timestamp" DESC
      ), today AS (
         SELECT device_id,
                max(active_energy) - min(active_energy) AS wh,
                count(*) AS samples
           FROM energy_telemetry
-         WHERE device_id = ANY($1)
+         WHERE device_id = ANY($1) AND plant_id = $2
            AND "timestamp" >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata')
                               AT TIME ZONE 'Asia/Kolkata'
          GROUP BY device_id
@@ -677,7 +688,7 @@ export async function deviceSnapshots(ids: string[]): Promise<DeviceSnapshot[]> 
        LEFT JOIN latest l ON l.device_id = d.id
        LEFT JOIN today  t ON t.device_id = d.id
       ORDER BY d.id`,
-    [ids],
+    [ids, plantId],
   );
   return rows.map((r) => ({
     deviceId: String(r.device_id),
@@ -765,6 +776,7 @@ export interface RawPageOpts {
 
 /** One page of raw readings for a single device, plus the total row count. */
 export async function telemetryRows(
+  plantId: string,
   deviceId: string,
   win: Win,
   opts: RawPageOpts = {},
@@ -776,22 +788,23 @@ export async function telemetryRows(
   const rows = await q<RawRow>(
     `SELECT ${RAW_SELECT}
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = $1
+      WHERE ${clause} AND device_id = $1 AND plant_id = $4
       ${rawOrderBy(opts.sort, opts.dir)}
       LIMIT $2 OFFSET $3`,
-    [deviceId, pageSize, (page - 1) * pageSize],
+    [deviceId, pageSize, (page - 1) * pageSize, plantId],
   );
   const [c] = await q<{ n: string }>(
     `SELECT count(*) AS n
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = $1`,
-    [deviceId],
+      WHERE ${clause} AND device_id = $1 AND plant_id = $2`,
+    [deviceId, plantId],
   );
   return { rows, total: Number(c?.n ?? 0) };
 }
 
 /** The whole range for CSV export (no paging), hard-capped so it can't OOM. */
 export async function telemetryRowsForExport(
+  plantId: string,
   deviceId: string,
   win: Win,
   opts: { sort?: string; dir?: string; cap?: number } = {},
@@ -801,10 +814,10 @@ export async function telemetryRowsForExport(
   const rows = await q<RawRow>(
     `SELECT ${RAW_SELECT}
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = $1
+      WHERE ${clause} AND device_id = $1 AND plant_id = $3
       ${rawOrderBy(opts.sort, opts.dir)}
       LIMIT $2`,
-    [deviceId, cap + 1],
+    [deviceId, cap + 1, plantId],
   );
   const capped = rows.length > cap;
   return { rows: capped ? rows.slice(0, cap) : rows, capped, cap };

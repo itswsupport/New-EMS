@@ -54,13 +54,13 @@ export default async function PlantRollup({
     const childIds = topo.childrenOf(mainId).map((n) => n.id);
 
     const [kw, energyToday, pf, meters, plantSeries, byMeter, dist] = await Promise.all([
-      plantActivePowerKw(rootIds),
-      plantEnergyKvah(rootIds, win),
-      plantPowerFactor(rootIds),
-      metersOnline(allIds),
-      plantPowerSeries(rootIds, win),
-      powerByMeter(allIds, win),
-      distributionFor(mainId, childIds, win),
+      plantActivePowerKw(plant, rootIds),
+      plantEnergyKvah(plant, rootIds, win),
+      plantPowerFactor(plant, rootIds),
+      metersOnline(plant, allIds),
+      plantPowerSeries(plant, rootIds, win),
+      powerByMeter(plant, allIds, win),
+      distributionFor(plant, mainId, childIds, win),
     ]);
 
     const p = power(kw);

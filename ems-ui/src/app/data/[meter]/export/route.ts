@@ -39,7 +39,7 @@ export async function GET(
   const sort = q.get("sort") ?? "timestamp";
   const dir = q.get("dir") === "asc" ? "asc" : "desc";
 
-  const { rows, capped, cap } = await telemetryRowsForExport(meter, win, {
+  const { rows, capped, cap } = await telemetryRowsForExport(plant, meter, win, {
     sort,
     dir,
     cap: 100_000,

@@ -40,7 +40,7 @@ export default async function ChartTablePage({
   const meter = sp.meter && topo.allIds.includes(sp.meter) ? sp.meter : topo.allIds[0] ?? "";
 
   try {
-    const series = await def.load(win, { allIds: topo.allIds, rootIds: topo.rootIds, meter });
+    const series = await def.load(win, { plantId: plant, allIds: topo.allIds, rootIds: topo.rootIds, meter });
     const { columns: seriesNames, rows: pivot } = pivotSeries(series, "time", "desc");
 
     const columns: DataColumn[] = [

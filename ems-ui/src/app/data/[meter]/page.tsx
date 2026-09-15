@@ -59,7 +59,7 @@ export default async function DataTablePage({
   if (!topo.allIds.includes(meter)) notFound();
 
   try {
-    const { rows: raw, total } = await telemetryRows(meter, win, { page, pageSize, sort, dir });
+    const { rows: raw, total } = await telemetryRows(plant, meter, win, { page, pageSize, sort, dir });
 
     const columns: DataColumn[] = RAW_COLUMNS.map((c) => ({
       key: c.key,

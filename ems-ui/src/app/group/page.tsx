@@ -30,11 +30,11 @@ type PlantRollup = {
 async function rollupFor(plant: PlantInfo): Promise<PlantRollup> {
   const topo = await getTopology(plant.id);
   const [kw, energy, pf, online, demand] = await Promise.all([
-    plantActivePowerKw(topo.rootIds),
-    plantEnergyKvah(topo.rootIds, "today"),
-    plantPowerFactor(topo.allIds),
-    metersOnline(topo.allIds),
-    coincidentMaxDemand(topo.rootIds, "today", plant.demandBlockMin),
+    plantActivePowerKw(plant.id, topo.rootIds),
+    plantEnergyKvah(plant.id, topo.rootIds, "today"),
+    plantPowerFactor(plant.id, topo.allIds),
+    metersOnline(plant.id, topo.allIds),
+    coincidentMaxDemand(plant.id, topo.rootIds, "today", plant.demandBlockMin),
   ]);
   return {
     plant,

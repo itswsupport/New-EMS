@@ -37,7 +37,7 @@ export async function GET(
   const meter =
     meterParam && topo.allIds.includes(meterParam) ? meterParam : topo.allIds[0] ?? "";
 
-  const series = await def.load(range, { allIds: topo.allIds, rootIds: topo.rootIds, meter });
+  const series = await def.load(range, { plantId: plant, allIds: topo.allIds, rootIds: topo.rootIds, meter });
   const { columns, rows } = pivotSeries(series, sort, dir);
 
   const unit = def.unit ? ` (${def.unit})` : "";

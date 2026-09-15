@@ -107,7 +107,7 @@ export default async function Topology({
     const configured = topo.allIds;
 
     const [snaps, reporting] = await Promise.all([
-      deviceSnapshots(configured),
+      deviceSnapshots(plant, configured),
       meterList(plant),
     ]);
     const snapBy = new Map(snaps.map((s) => [s.deviceId, s]));
@@ -129,6 +129,7 @@ export default async function Topology({
     const dists = await Promise.all(
       parents.map((n) =>
         distributionFor(
+          plant,
           n.id,
           topo.childrenOf(n.id).map((c) => c.id),
           win,
