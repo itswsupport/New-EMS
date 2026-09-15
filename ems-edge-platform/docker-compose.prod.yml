@@ -24,7 +24,10 @@ services:
     image: timescale/timescaledb-ha:pg16
     restart: always
     # Explicitly no `ports:` — never expose the database to the network.
-    volumes: !reset
+    # !override REPLACES the base pgdata mount (needs Compose >= 2.24). NOTE:
+    # !reset does NOT work here — it clears the mount without adding the new one,
+    # leaving the DB on ephemeral container storage.
+    volumes: !override
       - pgdata_ts:/home/postgres/pgdata/data
     logging:
       driver: "json-file"

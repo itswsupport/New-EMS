@@ -27,5 +27,7 @@ volumes:
 services:
   postgres:
     image: timescale/timescaledb-ha:pg16
-    volumes: !reset
+    # !override REPLACES the base mount. Do NOT use !reset — it clears the mount
+    # without adding this one, leaving the DB on ephemeral container storage.
+    volumes: !override
       - pgdata_ts:/home/postgres/pgdata/data
