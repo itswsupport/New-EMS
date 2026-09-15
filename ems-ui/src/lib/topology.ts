@@ -81,6 +81,8 @@ export type ManagedDevice = {
   plantId: string;
   slave: number | null;
   area: string | null;
+  byteOrder: string | null;
+  registers: EditableRegister[];
 };
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -119,6 +121,7 @@ type DeviceRow = {
   hidden: boolean;
   is_virtual: boolean;
   area: string | null;
+  byte_order: string | null;
 };
 
 function registersFromJson(j: unknown): RegisterDef[] {
@@ -130,6 +133,29 @@ function registersFromJson(j: unknown): RegisterDef[] {
       scale: typeof x.scale === "number" && x.scale !== 1 ? x.scale : undefined,
     }))
     .filter((r) => r.name && r.address >= 0)
+    .sort((a, b) => a.address - b.address);
+}
+
+/** Full register fields (metric/address/datatype/quantity/scale) for the edit form. */
+export type EditableRegister = {
+  metric: string;
+  address: number;
+  datatype: string;
+  quantity: number | null;
+  scale: number;
+};
+
+function registersForEdit(j: unknown): EditableRegister[] {
+  if (!Array.isArray(j)) return [];
+  return (j as Array<Record<string, unknown>>)
+    .map((x) => ({
+      metric: String(x.metric ?? x.name ?? ""),
+      address: typeof x.address === "number" ? x.address : -1,
+      datatype: typeof x.datatype === "string" ? x.datatype : "float32",
+      quantity: typeof x.quantity === "number" ? x.quantity : null,
+      scale: typeof x.scale === "number" ? x.scale : 1,
+    }))
+    .filter((r) => r.metric && r.address >= 0)
     .sort((a, b) => a.address - b.address);
 }
 
@@ -151,7 +177,7 @@ function rowToEntry(r: DeviceRow): Entry {
 /** Read device rows from the registry, optionally scoped to one plant. */
 export async function deviceRows(plantId?: string): Promise<DeviceRow[]> {
   const cols =
-    "plant_id, device_id, tenant_id, slave, parent_id, display_name, registers, hidden, is_virtual, area";
+    "plant_id, device_id, tenant_id, slave, parent_id, display_name, registers, hidden, is_virtual, area, byte_order";
   return plantId
     ? q<DeviceRow>(`SELECT ${cols} FROM device WHERE plant_id = $1 ORDER BY device_id`, [plantId])
     : q<DeviceRow>(`SELECT ${cols} FROM device ORDER BY plant_id, device_id`);
@@ -376,6 +402,8 @@ export async function getManagedDevices(plantId: string): Promise<ManagedDevice[
       plantId: r.plant_id,
       slave: r.slave,
       area: r.area,
+      byteOrder: r.byte_order,
+      registers: registersForEdit(r.registers),
     }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }

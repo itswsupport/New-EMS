@@ -49,8 +49,10 @@ export default function TopologyEditor({
   const [adoptId, setAdoptId] = useState("");
   const [adoptParent, setAdoptParent] = useState("");
 
-  // Add-meter form
+  // Add/Edit-meter form. editingId != null means we're editing that meter
+  // (device id locked, saved via the same upsert).
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [mId, setMId] = useState("");
   const [mName, setMName] = useState("");
   const [mSlave, setMSlave] = useState("");
@@ -101,6 +103,17 @@ export default function TopologyEditor({
     });
   };
 
+  const resetForm = () => {
+    setEditingId(null);
+    setMId("");
+    setMName("");
+    setMSlave("");
+    setMArea("");
+    setMParent("");
+    setMByteOrder("ABCD");
+    setRegs([]);
+  };
+
   const submitMeter = () => {
     run(
       () =>
@@ -114,15 +127,32 @@ export default function TopologyEditor({
           registers: regs,
         }),
       () => {
-        setMId("");
-        setMName("");
-        setMSlave("");
-        setMArea("");
-        setMParent("");
-        setRegs([]);
+        resetForm();
         setShowAdd(false);
       },
     );
+  };
+
+  /** Load an existing meter into the form for editing (saved via the upsert). */
+  const startEdit = (d: ManagedDevice) => {
+    setError(null);
+    setEditingId(d.id);
+    setMId(d.id);
+    setMName(d.displayName === d.id ? "" : d.displayName);
+    setMSlave(d.slave != null ? String(d.slave) : "");
+    setMArea(d.area ?? "");
+    setMParent(d.parentId ?? "");
+    setMByteOrder(d.byteOrder ?? "ABCD");
+    setRegs(
+      d.registers.map((r) => ({
+        metric: r.metric,
+        address: String(r.address),
+        datatype: r.datatype,
+        quantity: r.quantity != null ? String(r.quantity) : "",
+        scale: String(r.scale),
+      })),
+    );
+    setShowAdd(true);
   };
 
   const updateRow = (i: number, field: keyof RegRow, val: string) =>
@@ -195,6 +225,15 @@ export default function TopologyEditor({
                   />
                 </td>
                 <td className="normal-case">
+                  {!d.isVirtual && d.slave !== null && (
+                    <button
+                      type="button"
+                      onClick={() => startEdit(d)}
+                      className="mr-2 rounded-sm border border-border px-1.5 py-0.5 hover:bg-secondary"
+                    >
+                      Edit
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => run(() => hideDevice(plant, d.id, !d.hidden))}
@@ -235,19 +274,26 @@ export default function TopologyEditor({
           }}
           className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] font-medium hover:bg-secondary"
         >
-          <span>+ Add meter (physical device with a register map)</span>
+          <span>
+            {editingId
+              ? `Editing meter: ${editingId}`
+              : "+ Add meter (physical device with a register map)"}
+          </span>
           <span className="text-muted-foreground">{showAdd ? "▲" : "▼"}</span>
         </button>
 
         {showAdd && (
           <div className="border-t border-border p-3">
             <div className="flex flex-wrap items-end gap-3 text-[11px]">
-              <Field label="Device id (unique)">
+              <Field label={editingId ? "Device id (locked)" : "Device id (unique)"}>
                 <input
                   value={mId}
                   onChange={(e) => setMId(e.target.value)}
+                  readOnly={!!editingId}
                   placeholder="e.g. meter12"
-                  className="w-[120px] border border-border rounded-sm bg-card px-1.5 py-1 text-[11px] normal-case"
+                  className={`w-[120px] rounded-sm border border-border px-1.5 py-1 text-[11px] normal-case ${
+                    editingId ? "bg-secondary text-muted-foreground" : "bg-card"
+                  }`}
                 />
               </Field>
               <Field label="Display name">
@@ -417,10 +463,24 @@ export default function TopologyEditor({
                 onClick={submitMeter}
                 className="rounded-sm bg-brand px-3 py-1 text-[11px] text-white hover:opacity-90 disabled:opacity-40"
               >
-                Add meter
+                {editingId ? "Save changes" : "Add meter"}
               </button>
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetForm();
+                    setShowAdd(false);
+                  }}
+                  className="rounded-sm border border-border px-3 py-1 text-[11px] hover:bg-secondary"
+                >
+                  Cancel
+                </button>
+              )}
               <span className="text-[10px] text-muted-foreground">
-                Polled after this plant&apos;s edge poller restarts.
+                {editingId
+                  ? "Changes to slave / registers take effect after the plant's edge poller restarts."
+                  : "Polled after this plant's edge poller restarts."}
               </span>
             </div>
           </div>
