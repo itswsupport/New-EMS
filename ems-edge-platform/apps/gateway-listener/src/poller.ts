@@ -11,6 +11,11 @@ export interface PollerOptions {
   readonly maxRetries: number;
   /** Largest hole a block read may span, in registers. Defaults to 0. */
   readonly maxRegisterGap?: number;
+  /** Circuit breaker: after this many consecutive all-BAD polls, a slave is put
+      in cooldown and skipped, so one dead meter can't stall the serial cycle. */
+  readonly slaveFailThreshold: number;
+  /** How many cycles a cooling slave is skipped before it is re-probed once. */
+  readonly slaveCooldownCycles: number;
 }
 
 /** Modbus caps a single read at 125 registers. */
@@ -89,6 +94,12 @@ export class DevicePoller {
   #running = false;
   #stopped = false;
 
+  // Per-slave circuit breaker. A slave whose poll yields only null (quality BAD)
+  // this many cycles running is skipped until #coolingUntil, then probed once.
+  #cycleCount = 0;
+  readonly #failures = new Map<number, number>();
+  readonly #coolingUntil = new Map<number, number>();
+
   constructor(
     private readonly transactor: Transactor,
     private readonly codec: ModbusCodec,
@@ -129,15 +140,21 @@ export class DevicePoller {
     try {
       for (const device of this.devices) {
         if (this.#stopped) break;
-        await this.#pollDevice(device);
+        // Skip a cooling-down slave so a dead meter's timeouts don't stall the
+        // whole serial cycle; it is re-probed once when the cooldown expires.
+        if (this.#cycleCount < (this.#coolingUntil.get(device.slave) ?? 0)) continue;
+        const ok = await this.#pollDevice(device);
+        this.#updateBreaker(device, ok);
       }
     } finally {
+      this.#cycleCount++;
       this.#running = false;
       this.hooks.onPollCycle(performance.now() - started);
     }
   }
 
-  async #pollDevice(device: ResolvedDevice): Promise<void> {
+  /** Poll one device. Returns true if it produced usable data (quality != BAD). */
+  async #pollDevice(device: ResolvedDevice): Promise<boolean> {
     const readings: MetricReading[] = device.batch
       ? await this.#readBlocks(device)
       : await this.#readEach(device.slave, device.registers);
@@ -151,12 +168,43 @@ export class DevicePoller {
     const validated = validateTelemetry(record);
     if (!validated.ok) {
       this.log.warn({ device_id: device.id, reason: validated.error.message }, "record rejected");
-      return;
+      return false;
     }
 
     this.hooks.onFrameDecoded(this.transactor.connectionId);
     this.hooks.onRecordProduced(this.transactor.connectionId, device.tenant, device.plant);
     await this.sink(validated.value);
+    return validated.value.quality !== "BAD";
+  }
+
+  /**
+   * Circuit breaker: a slave that returns only null (quality BAD) for
+   * `slaveFailThreshold` cycles running is put in cooldown and skipped for
+   * `slaveCooldownCycles` cycles, then probed once. Recovery resets it. WARNs on
+   * trip and recovery so a dead meter is visible in the default (info) log.
+   */
+  #updateBreaker(device: ResolvedDevice, ok: boolean): void {
+    const slave = device.slave;
+    if (ok) {
+      if ((this.#failures.get(slave) ?? 0) > 0 || this.#coolingUntil.has(slave)) {
+        this.log.warn({ slave, device_id: device.id }, "slave recovered — resuming normal polling");
+      }
+      this.#failures.delete(slave);
+      this.#coolingUntil.delete(slave);
+      return;
+    }
+    const failures = (this.#failures.get(slave) ?? 0) + 1;
+    this.#failures.set(slave, failures);
+    if (failures >= this.opts.slaveFailThreshold) {
+      const wasCooling = this.#coolingUntil.has(slave);
+      this.#coolingUntil.set(slave, this.#cycleCount + 1 + this.opts.slaveCooldownCycles);
+      if (!wasCooling) {
+        this.log.warn(
+          { slave, device_id: device.id, failures, cooldown_cycles: this.opts.slaveCooldownCycles },
+          "slave returning no data — cooling down (will re-probe periodically)",
+        );
+      }
+    }
   }
 
   /** One request per contiguous block, falling back to per-register on failure. */

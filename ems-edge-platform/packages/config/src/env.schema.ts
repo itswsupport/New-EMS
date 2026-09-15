@@ -35,6 +35,12 @@ export const envSchema = z.object({
   POLL_INTERVAL_MS: int(5000, 100),
   MODBUS_TIMEOUT_MS: int(3000, 100),
   MODBUS_MAX_RETRIES: int(2, 0),
+  // Per-slave circuit breaker (poller). After SLAVE_FAIL_THRESHOLD consecutive
+  // all-BAD polls, a slave is skipped for SLAVE_COOLDOWN_CYCLES cycles then
+  // re-probed once — so one dead/mis-mapped meter can't stall the serial cycle
+  // (a dead slave otherwise burns timeout×retry every cycle for the whole fleet).
+  SLAVE_FAIL_THRESHOLD: int(3, 1),
+  SLAVE_COOLDOWN_CYCLES: int(20, 1),
   // Registers are read in contiguous blocks. This is the largest hole a block may
   // span, in registers. DEFAULT 0 — merge only strictly adjacent registers.
   // Reading an address a meter does not map can corrupt the WHOLE response: on

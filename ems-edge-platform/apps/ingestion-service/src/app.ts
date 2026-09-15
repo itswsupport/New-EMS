@@ -79,6 +79,8 @@ export async function createApp(env: AppEnv): Promise<App> {
       timeoutMs: env.MODBUS_TIMEOUT_MS,
       maxRetries: env.MODBUS_MAX_RETRIES,
       maxRegisterGap: env.MODBUS_MAX_REGISTER_GAP,
+      slaveFailThreshold: env.SLAVE_FAIL_THRESHOLD,
+      slaveCooldownCycles: env.SLAVE_COOLDOWN_CYCLES,
       framing: env.MODBUS_FRAMING,
     },
     {

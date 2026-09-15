@@ -42,7 +42,7 @@ describe("DevicePoller (transport-isolated end-to-end decode)", () => {
       transactor, createModbusCodec("rtu"), [device],
       async (r: TelemetryRecord) => void produced.push(r),
       noopHooks, log,
-      { intervalMs: 10_000, timeoutMs: 500, maxRetries: 1 },
+      { intervalMs: 10_000, timeoutMs: 500, maxRetries: 1, slaveFailThreshold: 3, slaveCooldownCycles: 20 },
     );
 
     // start() fires an immediate tick; wait for the async cycle to complete.
