@@ -2,6 +2,7 @@ import Filters from "@/components/Filters";
 import StatTile from "@/components/StatTile";
 import TimeSeries from "@/components/TimeSeries";
 import Distribution from "@/components/Distribution";
+import IncomerBreakdown from "@/components/IncomerBreakdown";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import EmptyPlant from "@/components/EmptyPlant";
@@ -11,6 +12,7 @@ import { getSelectedPlant } from "@/lib/plant";
 import {
   bucketLabel,
   distributionFor,
+  incomerBreakdown,
   metersOnline,
   plantActivePowerKw,
   plantEnergyKvah,
@@ -50,18 +52,23 @@ export default async function PlantRollup({
 
     const rootIds = topo.rootIds;
     const allIds = topo.allIds;
+    // This plant may have several independent utility incomers (each a root), or
+    // a single incomer with sub-meters beneath it. The rollup handles both.
+    const multiIncomer = rootIds.length > 1;
     const mainId = rootIds[0];
     const childIds = topo.childrenOf(mainId).map((n) => n.id);
 
-    const [kw, energyToday, pf, meters, plantSeries, byMeter, dist] = await Promise.all([
-      plantActivePowerKw(plant, rootIds),
-      plantEnergyKvah(plant, rootIds, win),
-      plantPowerFactor(plant, rootIds),
-      metersOnline(plant, allIds),
-      plantPowerSeries(plant, rootIds, win),
-      powerByMeter(plant, allIds, win),
-      distributionFor(plant, mainId, childIds, win),
-    ]);
+    const [kw, energyToday, pf, meters, plantSeries, byMeter, breakdown, dist] =
+      await Promise.all([
+        plantActivePowerKw(plant, rootIds),
+        plantEnergyKvah(plant, rootIds, win),
+        plantPowerFactor(plant, rootIds),
+        metersOnline(plant, allIds),
+        plantPowerSeries(plant, rootIds, win),
+        powerByMeter(plant, allIds, win),
+        incomerBreakdown(plant, rootIds, win),
+        distributionFor(plant, mainId, childIds, win),
+      ]);
 
     const p = power(kw);
     const e = apparentEnergy(energyToday.kvah);
@@ -81,14 +88,25 @@ export default async function PlantRollup({
         <Filters title="Plant Rollup" range={rangeForUi} warnings={warnings} />
 
         <Notice>
-          <span>
-            <strong className="font-medium text-foreground">
-              Totals are the incomer&apos;s, not the sum of all meters.
-            </strong>{" "}
-            <code className="normal-case">{mainId}</code> is the utility incomer and{" "}
-            {childIds.join(", ")} sit downstream of it, so their consumption is already
-            inside its reading. Summing all of them would double-count.
-          </span>
+          {multiIncomer ? (
+            <span>
+              <strong className="font-medium text-foreground">
+                Plant totals sum the {rootIds.length} incomers ({rootIds.join(", ")}).
+              </strong>{" "}
+              These are independent utility incomers — their feeds don&apos;t overlap, so
+              the plant total is their sum, not a double-count. Any sub-meters sit
+              downstream of an incomer and are already inside its reading.
+            </span>
+          ) : (
+            <span>
+              <strong className="font-medium text-foreground">
+                Totals are the incomer&apos;s, not the sum of all meters.
+              </strong>{" "}
+              <code className="normal-case">{mainId}</code> is the utility incomer and{" "}
+              {childIds.join(", ")} sit downstream of it, so their consumption is already
+              inside its reading. Summing all of them would double-count.
+            </span>
+          )}
         </Notice>
 
         {rangeTouchesCorruptWindow(win) && (
@@ -109,7 +127,11 @@ export default async function PlantRollup({
             label="Plant active power"
             value={p.value}
             unit={p.unit}
-            sub={`Incomer ${mainId}, latest 30s reading`}
+            sub={
+              multiIncomer
+                ? `Sum of ${rootIds.length} incomers, latest 30s reading`
+                : `Incomer ${mainId}, latest 30s reading`
+            }
           />
           <StatTile
             label="Plant energy"
@@ -134,14 +156,18 @@ export default async function PlantRollup({
           />
 
           <Panel
-            title={`Where the energy goes — ${mainId} against its sub-meters`}
+            title={
+              multiIncomer
+                ? "Where the energy comes in — by incomer"
+                : `Where the energy goes — ${mainId} against its sub-meters`
+            }
             span="col-span-12 lg:col-span-4"
           >
-            <Distribution dist={dist} />
+            {multiIncomer ? <IncomerBreakdown data={breakdown} /> : <Distribution dist={dist} />}
           </Panel>
 
           <Panel
-            title="Plant total active power (incomer)"
+            title={multiIncomer ? "Plant total active power (all incomers)" : "Plant total active power (incomer)"}
             span="col-span-12 lg:col-span-8"
           >
             <TimeSeries
@@ -155,7 +181,10 @@ export default async function PlantRollup({
             />
           </Panel>
 
-          <Panel title="Active power by meter — incomer and sub-meters" span="col-span-12">
+          <Panel
+            title={multiIncomer ? "Active power by meter" : "Active power by meter — incomer and sub-meters"}
+            span="col-span-12"
+          >
             <TimeSeries
               id="meter-kw"
               tableHref={`/chart/power${winQs ? `?${winQs}` : ""}`}

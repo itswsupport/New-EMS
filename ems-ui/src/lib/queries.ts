@@ -527,6 +527,50 @@ export async function distributionFor(
   };
 }
 
+/* ---- Incomer breakdown: the plant split across its roots ------------------ */
+
+export type IncomerShare = { deviceId: string; kwh: number | null; pct: number | null };
+export type PlantBreakdown = { totalKwh: number | null; incomers: IncomerShare[] };
+
+/**
+ * Plant energy split across its incomers (root meters). Each root is an
+ * independent utility incomer whose feed does not overlap the others, so the
+ * plant total is their sum and each root's share is a real fraction of plant
+ * consumption — not a parent/child ratio. Energy deltas, never instantaneous
+ * power (poll skew between meters makes minute-level ratios unreliable).
+ *
+ * This is the correct "where the energy comes in" view for a multi-incomer
+ * plant; `distributionFor` remains the view for a true parent-vs-children tree.
+ */
+export async function incomerBreakdown(
+  plantId: string,
+  rootIds: string[],
+  win: Win,
+): Promise<PlantBreakdown> {
+  if (!rootIds.length) return { totalKwh: null, incomers: [] };
+  const { clause } = resolveWin(win);
+  const rows = await q<{ device_id: string; kwh: string | number | null }>(
+    `SELECT device_id, (max(active_energy) - min(active_energy))/1000.0 AS kwh
+       FROM energy_telemetry
+      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
+      GROUP BY device_id`,
+    [rootIds, plantId],
+  );
+  const kwhOf = (id: string) => num(rows.find((r) => r.device_id === id)?.kwh ?? null);
+  const rawer = rootIds.map((id) => ({ deviceId: id, kwh: kwhOf(id) }));
+  const total = rawer.reduce((a, c) => a + (c.kwh ?? 0), 0);
+  const totalKwh = rawer.some((c) => c.kwh !== null) ? total : null;
+  const incomers = rawer
+    .map((c) => ({
+      deviceId: c.deviceId,
+      kwh: c.kwh,
+      pct: totalKwh && totalKwh > 0 && c.kwh !== null ? (c.kwh / totalKwh) * 100 : null,
+    }))
+    // Largest incomer first — reads as a ranked contribution list.
+    .sort((a, b) => (b.kwh ?? -1) - (a.kwh ?? -1));
+  return { totalKwh, incomers };
+}
+
 /* ---- Cost and demand ------------------------------------------------------ */
 
 export type MeterCost = {

@@ -16,6 +16,7 @@ import {
   costByMeter,
   pfByMeter,
   pfStats,
+  plantEnergyKvah,
   rangeTouchesCorruptWindow,
   reactiveEnergyByMeter,
   winLabel,
@@ -55,37 +56,46 @@ export default async function CostDemand({
 
     const rootIds = topo.rootIds;
     const allIds = topo.allIds;
+    // Several independent incomers (each a root), or one incomer with sub-meters.
+    const multiIncomer = rootIds.length > 1;
     const mainId = rootIds[0];
     const childIds = topo.childrenOf(mainId).map((n) => n.id);
 
-    const [costs, demand, pf, pfs, reactive] = await Promise.all([
+    const [costs, plantEnergy, demand, pf, pfs, reactive] = await Promise.all([
       costByMeter(plant, allIds, win, TARIFF),
+      plantEnergyKvah(plant, rootIds, win),
       coincidentMaxDemand(plant, rootIds, win, BLOCK_MIN),
       pfByMeter(plant, allIds, win),
       pfStats(plant, allIds, win),
       reactiveEnergyByMeter(plant, allIds, win),
     ]);
 
-    const root = costs.find((c) => c.deviceId === mainId);
-    const rootKwh = root?.kwh ?? null;
-    const rootCost = root?.cost ?? null;
+    // The utility bill is the WHOLE plant: the sum of every incomer (root), on
+    // the same load-weighted kVAh basis as the rollup — never one root alone.
+    const plantKwh = plantEnergy.kwh;
+    const plantKvah = plantEnergy.kvah;
+    const plantCost = plantKvah === null ? null : plantKvah * TARIFF;
 
-    // Sub-meter rupees are a SHARE of the incomer's bill, never an addition to it.
-    const allocation = childIds.map((id) => {
+    // Rows apportion that single bill by energy share, for internal chargeback.
+    // Multi-incomer: split across the incomers. Single incomer: split across its
+    // sub-meters (plantKwh is then that incomer's own energy, so the maths agree).
+    const allocTargets = multiIncomer ? rootIds : childIds;
+    const allocation = allocTargets.map((id) => {
       const c = costs.find((x) => x.deviceId === id);
-      const share = rootKwh && c?.kwh != null ? c.kwh / rootKwh : null;
+      const kwh = c?.kwh ?? null;
+      const share = plantKwh && plantKwh > 0 && kwh != null ? kwh / plantKwh : null;
       return {
         deviceId: id,
-        kwh: c?.kwh ?? null,
+        kwh,
         pf: c?.pf ?? null,
         share,
-        cost: share !== null && rootCost !== null ? rootCost * share : null,
+        cost: share !== null && plantCost !== null ? plantCost * share : null,
       };
     });
     const allocatedShare = allocation.reduce((a, r) => a + (r.share ?? 0), 0);
     const unattributedShare = 1 - allocatedShare;
     const unattributedKwh =
-      rootKwh === null ? null : rootKwh - allocation.reduce((a, r) => a + (r.kwh ?? 0), 0);
+      plantKwh === null ? null : plantKwh - allocation.reduce((a, r) => a + (r.kwh ?? 0), 0);
 
     const pfColumns: DataColumn[] = [
       { key: "meter", label: "Meter", align: "left" },
@@ -122,14 +132,26 @@ export default async function CostDemand({
         <Filters title="Cost & Demand" range={rangeForUi} warnings={warnings} />
 
         <Notice>
-          <span>
-            <strong className="font-medium text-foreground">
-              One bill, allocated — not three bills added up.
-            </strong>{" "}
-            The utility meters <code className="normal-case">{mainId}</code>, so that is
-            the cost. Sub-meter rows below are that same cost apportioned by energy
-            share for internal chargeback; they are not additional spend.
-          </span>
+          {multiIncomer ? (
+            <span>
+              <strong className="font-medium text-foreground">
+                One bill across all {rootIds.length} incomers, then allocated.
+              </strong>{" "}
+              The cost above is the combined energy of every incomer (
+              {rootIds.join(", ")}). Rows below apportion that same spend by each
+              incomer&apos;s energy share for internal chargeback — they are not
+              additional bills.
+            </span>
+          ) : (
+            <span>
+              <strong className="font-medium text-foreground">
+                One bill, allocated — not many bills added up.
+              </strong>{" "}
+              The utility meters <code className="normal-case">{mainId}</code>, so that is
+              the cost. Sub-meter rows below are that same cost apportioned by energy
+              share for internal chargeback; they are not additional spend.
+            </span>
+          )}
         </Notice>
 
         <Notice>
@@ -161,9 +183,11 @@ export default async function CostDemand({
         <div className="grid grid-cols-12 gap-3 pb-4">
           <StatTile
             label={`Utility-billed cost — ${spanLabel}`}
-            value={rupees(rootCost)}
+            value={rupees(plantCost)}
             span="col-span-12 lg:col-span-4"
-            sub={`${fmt(root?.kvah ?? null, 0)} kVAh at ₹${TARIFF}/kVAh · ${fmt(rootKwh, 0)} kWh at the incomer`}
+            sub={`${fmt(plantKvah, 0)} kVAh at ₹${TARIFF}/kVAh · ${fmt(plantKwh, 0)} kWh ${
+              multiIncomer ? `across ${rootIds.length} incomers` : "at the incomer"
+            }`}
           />
 
           <Panel
@@ -209,14 +233,16 @@ export default async function CostDemand({
                   <td className="text-right">{fmt(unattributedKwh, 0)}</td>
                   <td className="text-right">{fmt(unattributedShare * 100, 1)}%</td>
                   <td className="text-right">
-                    {rupees(rootCost === null ? null : rootCost * unattributedShare)}
+                    {rupees(plantCost === null ? null : plantCost * unattributedShare)}
                   </td>
                 </tr>
                 <tr>
-                  <td className="text-left font-medium">{mainId} (billed)</td>
-                  <td className="text-right font-medium">{fmt(rootKwh, 0)}</td>
+                  <td className="text-left font-medium">
+                    {multiIncomer ? "Plant total (billed)" : `${mainId} (billed)`}
+                  </td>
+                  <td className="text-right font-medium">{fmt(plantKwh, 0)}</td>
                   <td className="text-right font-medium">100%</td>
-                  <td className="text-right font-medium">{rupees(rootCost)}</td>
+                  <td className="text-right font-medium">{rupees(plantCost)}</td>
                 </tr>
               </tbody>
             </table>
