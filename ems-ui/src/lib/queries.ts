@@ -369,6 +369,17 @@ export const currentThdByMeter = (plantId: string, ids: string[], w: Win) =>
 export const voltageThdByMeter = (plantId: string, ids: string[], w: Win) =>
   multi(plantId, "device_id", "voltage_thd", ids, w);
 
+/** Grid frequency (Hz) per meter — should hug 50 Hz; drift flags a supply issue. */
+export const frequencyByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "frequency", ids, w);
+/** Instantaneous reactive power (kVAr) per meter — the live leg of the power
+    triangle, unlike the (wrong) cumulative reactive_energy counter. */
+export const reactivePowerByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "reactive_power/1000.0", ids, w);
+/** Instantaneous apparent power (kVA) per meter — completes the kW/kVAr/kVA triangle. */
+export const apparentPowerByMeter = (plantId: string, ids: string[], w: Win) =>
+  multi(plantId, "device_id", "apparent_power/1000.0", ids, w);
+
 export const voltageImbalance = (plantId: string, ids: string[], w: Win) =>
   multi(
     plantId,
@@ -424,6 +435,12 @@ export const perPhaseVoltage = (plantId: string, w: Win, m: string) =>
   perPhase(plantId, ["voltage_l1", "voltage_l2", "voltage_l3"], w, m);
 export const perPhaseCurrent = (plantId: string, w: Win, m: string) =>
   perPhase(plantId, ["current_l1", "current_l2", "current_l3"], w, m);
+/** Per-phase active power (kW) — reveals load balance across L1/L2/L3. */
+export const perPhaseActivePower = (plantId: string, w: Win, m: string) =>
+  perPhase(plantId, ["active_power_l1/1000.0", "active_power_l2/1000.0", "active_power_l3/1000.0"], w, m);
+/** Per-phase power factor — a single bad phase can drag the whole meter's PF. */
+export const perPhasePowerFactor = (plantId: string, w: Win, m: string) =>
+  perPhase(plantId, ["power_factor_l1", "power_factor_l2", "power_factor_l3"], w, m);
 
 /**
  * Downside statistics for power factor. A chart about penalty risk should report

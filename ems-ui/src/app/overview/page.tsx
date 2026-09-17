@@ -6,12 +6,17 @@ import EmptyPlant from "@/components/EmptyPlant";
 import { getTopology } from "@/lib/topology";
 import { getSelectedPlant } from "@/lib/plant";
 import {
+  apparentPowerByMeter,
   bucketLabel,
   currentThdByMeter,
+  frequencyByMeter,
+  perPhaseActivePower,
   perPhaseCurrent,
+  perPhasePowerFactor,
   perPhaseVoltage,
   pfByMeter,
   powerByMeter,
+  reactivePowerByMeter,
   voltageByMeter,
   windowFromParams,
   windowParams,
@@ -48,14 +53,20 @@ export default async function Overview({
     if (sp.meter && !allIds.includes(sp.meter))
       warnings.push(`Unknown meter "${sp.meter}" — showing ${meter}.`);
 
-    const [kw, pf, volts, ithd, phaseV, phaseI] = await Promise.all([
-      powerByMeter(plant, allIds, win),
-      pfByMeter(plant, allIds, win),
-      voltageByMeter(plant, allIds, win),
-      currentThdByMeter(plant, allIds, win),
-      perPhaseVoltage(plant, win, meter),
-      perPhaseCurrent(plant, win, meter),
-    ]);
+    const [kw, kva, kvar, freq, pf, volts, ithd, phaseV, phaseI, phaseP, phasePf] =
+      await Promise.all([
+        powerByMeter(plant, allIds, win),
+        apparentPowerByMeter(plant, allIds, win),
+        reactivePowerByMeter(plant, allIds, win),
+        frequencyByMeter(plant, allIds, win),
+        pfByMeter(plant, allIds, win),
+        voltageByMeter(plant, allIds, win),
+        currentThdByMeter(plant, allIds, win),
+        perPhaseVoltage(plant, win, meter),
+        perPhaseCurrent(plant, win, meter),
+        perPhaseActivePower(plant, win, meter),
+        perPhasePowerFactor(plant, win, meter),
+      ]);
 
     const stat = bucketLabel(win);
 
@@ -97,6 +108,46 @@ export default async function Overview({
               statLabel={stat}
               showBand={false}
               threshold={{ value: 0.9, label: "0.90 REFERENCE", tone: "warn" }}
+            />
+          </Panel>
+
+          <Panel title="Apparent power by meter (kVA)" span="col-span-12 lg:col-span-6">
+            <TimeSeries
+              id="ov-kva"
+              tableHref={`/chart/apparent-power${winQs ? `?${winQs}` : ""}`}
+              series={kva}
+              unit="kVA"
+              decimals={1}
+              height={210}
+              statLabel={stat}
+              showBand={false}
+            />
+          </Panel>
+
+          <Panel title="Reactive power by meter (kVAr)" span="col-span-12 lg:col-span-6">
+            <TimeSeries
+              id="ov-kvar"
+              tableHref={`/chart/reactive-power${winQs ? `?${winQs}` : ""}`}
+              series={kvar}
+              unit="kVAr"
+              decimals={1}
+              height={210}
+              statLabel={stat}
+              showBand={false}
+            />
+          </Panel>
+
+          <Panel title="Grid frequency by meter" span="col-span-12 lg:col-span-6">
+            <TimeSeries
+              id="ov-freq"
+              tableHref={`/chart/frequency${winQs ? `?${winQs}` : ""}`}
+              series={freq}
+              unit="Hz"
+              decimals={2}
+              height={210}
+              statLabel={stat}
+              showBand={false}
+              threshold={{ value: 50, label: "50 Hz NOMINAL", tone: "good" }}
             />
           </Panel>
 
@@ -151,6 +202,33 @@ export default async function Overview({
               height={210}
               statLabel={stat}
               showBand={false}
+            />
+          </Panel>
+
+          <Panel title={`Per-phase active power — ${meter}`} span="col-span-12 lg:col-span-6">
+            <TimeSeries
+              id="ov-php"
+              tableHref={`/chart/per-phase-power?meter=${meter}${winQs ? `&${winQs}` : ""}`}
+              series={phaseP}
+              unit="kW"
+              decimals={1}
+              height={210}
+              statLabel={stat}
+              showBand={false}
+            />
+          </Panel>
+
+          <Panel title={`Per-phase power factor — ${meter}`} span="col-span-12 lg:col-span-6">
+            <TimeSeries
+              id="ov-phpf"
+              tableHref={`/chart/per-phase-pf?meter=${meter}${winQs ? `&${winQs}` : ""}`}
+              series={phasePf}
+              unit=""
+              decimals={3}
+              height={210}
+              statLabel={stat}
+              showBand={false}
+              threshold={{ value: 0.9, label: "0.90 REFERENCE", tone: "warn" }}
             />
           </Panel>
         </div>
