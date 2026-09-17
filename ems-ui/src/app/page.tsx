@@ -3,6 +3,7 @@ import StatTile from "@/components/StatTile";
 import TimeSeries from "@/components/TimeSeries";
 import Distribution from "@/components/Distribution";
 import IncomerBreakdown from "@/components/IncomerBreakdown";
+import LoadHeatmap from "@/components/LoadHeatmap";
 import { Panel, Notice } from "@/components/Panel";
 import DbError from "@/components/DbError";
 import EmptyPlant from "@/components/EmptyPlant";
@@ -12,8 +13,12 @@ import { getSelectedPlant } from "@/lib/plant";
 import {
   bucketLabel,
   distributionFor,
+  energyVsLastMonth,
+  energyVsYesterday,
   incomerBreakdown,
+  loadHeatmap,
   metersOnline,
+  type PeriodDelta,
   plantActivePowerKw,
   plantEnergyKvah,
   plantPowerFactor,
@@ -24,6 +29,20 @@ import {
   windowFromParams,
   windowParams,
 } from "@/lib/queries";
+
+/** Consumption delta as a coloured sub-line: up = more energy = red, down = green. */
+function DeltaSub({ d, period }: { d: PeriodDelta; period: string }) {
+  if (!d.previousReliable)
+    return <>Prev {period} not comparable (Aug data corruption)</>;
+  if (d.deltaPct === null || d.previous === null)
+    return <>No {period} baseline yet</>;
+  const up = d.deltaPct >= 0;
+  return (
+    <span style={{ color: up ? "var(--bad)" : "var(--good)" }}>
+      {up ? "▲" : "▼"} {fmt(Math.abs(d.deltaPct), 1)}% vs {period} ({fmt(d.previous, 0)} kWh)
+    </span>
+  );
+}
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +80,7 @@ export default async function PlantRollup({
     // their hierarchy position is confirmed): nothing to break the energy down against.
     const soloMeter = !multiIncomer && childIds.length === 0;
 
-    const [kw, energyToday, pf, meters, plantSeries, byMeter, breakdown, dist] =
+    const [kw, energyToday, pf, meters, plantSeries, byMeter, breakdown, dist, vsYest, vsMonth, heatmap] =
       await Promise.all([
         plantActivePowerKw(plant, rootIds),
         plantEnergyKvah(plant, rootIds, win),
@@ -71,6 +90,9 @@ export default async function PlantRollup({
         powerByMeter(plant, allIds, win),
         incomerBreakdown(plant, rootIds, win),
         distributionFor(plant, mainId, childIds, win),
+        energyVsYesterday(plant, rootIds),
+        energyVsLastMonth(plant, rootIds),
+        loadHeatmap(plant, rootIds, 14),
       ]);
 
     const p = power(kw);
@@ -167,6 +189,19 @@ export default async function PlantRollup({
             sub="Seen in the last 60 seconds"
           />
 
+          <StatTile
+            label="Energy today"
+            value={energy(vsYest.current).value}
+            unit={energy(vsYest.current).unit}
+            sub={<DeltaSub d={vsYest} period="yesterday" />}
+          />
+          <StatTile
+            label="Energy this month"
+            value={energy(vsMonth.current).value}
+            unit={energy(vsMonth.current).unit}
+            sub={<DeltaSub d={vsMonth} period="last month" />}
+          />
+
           <Panel
             title={
               multiIncomer
@@ -221,6 +256,13 @@ export default async function PlantRollup({
               statLabel={bucketLabel(win)}
               showBand={false}
             />
+          </Panel>
+
+          <Panel
+            title="Load pattern — average kW by hour (IST), last 14 days"
+            span="col-span-12"
+          >
+            <LoadHeatmap data={heatmap} />
           </Panel>
         </div>
       </>

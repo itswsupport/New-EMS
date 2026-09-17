@@ -588,6 +588,140 @@ export async function incomerBreakdown(
   return { totalKwh, incomers };
 }
 
+/* ---- Period comparison (this period vs the last, to the same point) ------- */
+
+// IST-anchored period starts (Postgres runs UTC; a bare date_trunc rolls at 05:30 IST).
+const IST_DAY_START =
+  "date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'";
+const IST_MONTH_START =
+  "date_trunc('month', now() AT TIME ZONE 'Asia/Kolkata') AT TIME ZONE 'Asia/Kolkata'";
+
+/** Plant energy (kWh, summed over roots) in [fromSql, toSql); returns the window
+    bounds too so the caller can reject a window that overlaps corrupt data.
+ *
+ * Uses spike-filtered sum-of-increments, NOT max-min: active_energy is a
+ * monotonic cumulative counter, but the meters occasionally emit a spurious low
+ * (even 0) reading, and a single such glitch makes max-min explode by the whole
+ * counter value (~8 GWh). Summing consecutive positive deltas and discarding any
+ * that exceed a generous 10 MW rate over the sample gap ignores the glitch-down
+ * (negative) and its recovery (impossibly large), while matching max-min exactly
+ * on clean data. */
+async function windowEnergyKwh(
+  plantId: string,
+  rootIds: string[],
+  fromSql: string,
+  toSql: string,
+): Promise<{ kwh: number | null; from: Date; to: Date }> {
+  if (!rootIds.length) return { kwh: null, from: new Date(0), to: new Date(0) };
+  const rows = await q<{ total: string | number | null; wfrom: Date; wto: Date }>(
+    `WITH d AS (
+       SELECT active_energy - lag(active_energy)
+                OVER (PARTITION BY device_id ORDER BY "timestamp") AS delta,
+              extract(epoch from ("timestamp" - lag("timestamp")
+                OVER (PARTITION BY device_id ORDER BY "timestamp"))) AS dt
+         FROM energy_telemetry
+        WHERE "timestamp" >= ${fromSql} AND "timestamp" < ${toSql}
+          AND device_id = ANY($1) AND plant_id = $2 AND active_energy IS NOT NULL)
+     SELECT sum(delta)/1000.0 AS total, ${fromSql} AS wfrom, ${toSql} AS wto
+       FROM d
+      WHERE delta >= 0 AND delta <= 10000000 * dt / 3600.0`,
+    [rootIds, plantId],
+  );
+  const r = rows[0]!;
+  return { kwh: num(r.total ?? null), from: new Date(r.wfrom), to: new Date(r.wto) };
+}
+
+export type PeriodDelta = {
+  current: number | null;
+  previous: number | null;
+  deltaPct: number | null;
+  /** false when the previous window overlaps the known corrupt-energy window. */
+  previousReliable: boolean;
+};
+
+function toDelta(
+  cur: { kwh: number | null },
+  prv: { kwh: number | null; from: Date; to: Date },
+): PeriodDelta {
+  const previousReliable = !(prv.from < CORRUPT_TO && prv.to > CORRUPT_FROM);
+  const previous = previousReliable ? prv.kwh : null;
+  const current = cur.kwh;
+  const deltaPct =
+    current !== null && previous !== null && previous > 0
+      ? ((current - previous) / previous) * 100
+      : null;
+  return { current, previous, deltaPct, previousReliable };
+}
+
+/** Energy so far today vs the same clock window yesterday. */
+export async function energyVsYesterday(plantId: string, rootIds: string[]): Promise<PeriodDelta> {
+  const cur = await windowEnergyKwh(plantId, rootIds, IST_DAY_START, "now()");
+  const prv = await windowEnergyKwh(
+    plantId,
+    rootIds,
+    `(${IST_DAY_START}) - interval '1 day'`,
+    "now() - interval '1 day'",
+  );
+  return toDelta(cur, prv);
+}
+
+/** Energy month-to-date vs the same point last month. */
+export async function energyVsLastMonth(plantId: string, rootIds: string[]): Promise<PeriodDelta> {
+  const cur = await windowEnergyKwh(plantId, rootIds, IST_MONTH_START, "now()");
+  const prv = await windowEnergyKwh(
+    plantId,
+    rootIds,
+    `(${IST_MONTH_START}) - interval '1 month'`,
+    "now() - interval '1 month'",
+  );
+  return toDelta(cur, prv);
+}
+
+/* ---- Load profile heatmap (IST hour-of-day x date) ------------------------ */
+
+export type Heatmap = {
+  /** Newest date first; each has 24 hourly cells (index = IST hour 0-23). */
+  days: { date: string; cells: (number | null)[] }[];
+  maxKw: number;
+};
+
+/** Average plant load (kW) by IST hour-of-day and date, over the last N days —
+    the classic "when do we use power" view. Plant kW = sum of the roots. */
+export async function loadHeatmap(
+  plantId: string,
+  rootIds: string[],
+  days = 14,
+): Promise<Heatmap> {
+  if (!rootIds.length) return { days: [], maxKw: 0 };
+  const n = Math.max(1, Math.min(60, Math.floor(days)));
+  const rows = await q<{ ist_date: string; hod: number; kw: string | number | null }>(
+    `SELECT ist_date, hod, sum(avg_kw) AS kw FROM (
+        SELECT ("timestamp" AT TIME ZONE 'Asia/Kolkata')::date AS ist_date,
+               extract(hour from ("timestamp" AT TIME ZONE 'Asia/Kolkata'))::int AS hod,
+               device_id, avg(active_power)/1000.0 AS avg_kw
+          FROM energy_telemetry
+         WHERE "timestamp" >= now() - interval '${n} days'
+           AND device_id = ANY($1) AND plant_id = $2
+         GROUP BY 1, 2, 3) s
+      GROUP BY ist_date, hod ORDER BY ist_date, hod`,
+    [rootIds, plantId],
+  );
+  const byDate = new Map<string, (number | null)[]>();
+  let maxKw = 0;
+  for (const r of rows) {
+    const d = String(r.ist_date).slice(0, 10);
+    const arr = byDate.get(d) ?? new Array<number | null>(24).fill(null);
+    const kw = num(r.kw);
+    arr[r.hod] = kw;
+    if (kw !== null && kw > maxKw) maxKw = kw;
+    byDate.set(d, arr);
+  }
+  const daysArr = [...byDate.entries()]
+    .map(([date, cells]) => ({ date, cells }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+  return { days: daysArr, maxKw };
+}
+
 /* ---- Cost and demand ------------------------------------------------------ */
 
 export type MeterCost = {
