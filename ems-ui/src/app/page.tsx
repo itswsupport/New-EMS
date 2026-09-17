@@ -57,6 +57,9 @@ export default async function PlantRollup({
     const multiIncomer = rootIds.length > 1;
     const mainId = rootIds[0];
     const childIds = topo.childrenOf(mainId).map((n) => n.id);
+    // Single visible root with no visible sub-meters (e.g. others hidden until
+    // their hierarchy position is confirmed): nothing to break the energy down against.
+    const soloMeter = !multiIncomer && childIds.length === 0;
 
     const [kw, energyToday, pf, meters, plantSeries, byMeter, breakdown, dist] =
       await Promise.all([
@@ -96,6 +99,15 @@ export default async function PlantRollup({
               These are independent utility incomers — their feeds don&apos;t overlap, so
               the plant total is their sum, not a double-count. Any sub-meters sit
               downstream of an incomer and are already inside its reading.
+            </span>
+          ) : soloMeter ? (
+            <span>
+              <strong className="font-medium text-foreground">
+                Totals are <code className="normal-case">{mainId}</code>&apos;s reading.
+              </strong>{" "}
+              It is the only meter shown for this plant, so the figures are exactly what
+              it measures. Any other meters are hidden until their place in the hierarchy
+              is confirmed — add or unhide them to see a breakdown.
             </span>
           ) : (
             <span>
@@ -159,11 +171,25 @@ export default async function PlantRollup({
             title={
               multiIncomer
                 ? "Where the energy comes in — by incomer"
-                : `Where the energy goes — ${mainId} against its sub-meters`
+                : soloMeter
+                  ? `${mainId} — no sub-meters configured`
+                  : `Where the energy goes — ${mainId} against its sub-meters`
             }
             span="col-span-12 lg:col-span-4"
           >
-            {multiIncomer ? <IncomerBreakdown data={breakdown} /> : <Distribution dist={dist} />}
+            {multiIncomer ? (
+              <IncomerBreakdown data={breakdown} />
+            ) : soloMeter ? (
+              <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                Only <code className="normal-case">{mainId}</code> is shown, so there is
+                nothing to break its {energy(energyToday.kwh).value}{" "}
+                {energy(energyToday.kwh).unit} down against. Unhide or add the sub-meters
+                that sit under it — once their positions are confirmed — to see how the
+                energy distributes.
+              </p>
+            ) : (
+              <Distribution dist={dist} />
+            )}
           </Panel>
 
           <Panel

@@ -41,7 +41,8 @@ export default async function CostDemand({
     const { plant, config } = await getSelectedPlant();
     // Commercial config is per-plant, straight from the plant registry row.
     const TARIFF = config?.tariffKvah ?? PLANT_DEFAULTS.tariffKvah;
-    const CONTRACT = config?.contractKva ?? PLANT_DEFAULTS.contractKva;
+    // null = sanctioned demand not confirmed for this plant → no false %-of-contract.
+    const CONTRACT = config?.contractKva ?? null;
     const BLOCK_MIN = config?.demandBlockMin ?? PLANT_DEFAULTS.demandBlockMin;
     const topo = await getTopology(plant);
 
@@ -60,6 +61,8 @@ export default async function CostDemand({
     const multiIncomer = rootIds.length > 1;
     const mainId = rootIds[0];
     const childIds = topo.childrenOf(mainId).map((n) => n.id);
+    // Single visible meter, no visible sub-meters: nothing to allocate the bill across.
+    const soloMeter = !multiIncomer && childIds.length === 0;
 
     const [costs, plantEnergy, demand, pf, pfs, reactive] = await Promise.all([
       costByMeter(plant, allIds, win, TARIFF),
@@ -142,6 +145,15 @@ export default async function CostDemand({
               incomer&apos;s energy share for internal chargeback — they are not
               additional bills.
             </span>
+          ) : soloMeter ? (
+            <span>
+              <strong className="font-medium text-foreground">
+                Cost is <code className="normal-case">{mainId}</code>&apos;s energy.
+              </strong>{" "}
+              It is the only meter shown for this plant, so the bill above is exactly its
+              consumption. There are no sub-meters to allocate it across yet — unhide or
+              add them once their hierarchy position is confirmed.
+            </span>
           ) : (
             <span>
               <strong className="font-medium text-foreground">
@@ -221,31 +233,43 @@ export default async function CostDemand({
           </Panel>
 
           <Panel
-            title={`Cost allocation — ${spanLabel}`}
+            title={soloMeter ? `Billed cost — ${spanLabel}` : `Cost allocation — ${spanLabel}`}
             span="col-span-12 lg:col-span-5"
           >
-            <DataTable columns={allocColumns} rows={allocRows} filterable={false} initialPageSize={10} exportName="ems_cost_allocation" />
-            {/* Totals are a fixed footer, not sortable data. */}
-            <table className="table table-bordered mt-2 text-[11px] tnum">
-              <tbody>
-                <tr>
-                  <td className="text-left text-muted-foreground">Unattributed</td>
-                  <td className="text-right">{fmt(unattributedKwh, 0)}</td>
-                  <td className="text-right">{fmt(unattributedShare * 100, 1)}%</td>
-                  <td className="text-right">
-                    {rupees(plantCost === null ? null : plantCost * unattributedShare)}
-                  </td>
-                </tr>
-                <tr>
-                  <td className="text-left font-medium">
-                    {multiIncomer ? "Plant total (billed)" : `${mainId} (billed)`}
-                  </td>
-                  <td className="text-right font-medium">{fmt(plantKwh, 0)}</td>
-                  <td className="text-right font-medium">100%</td>
-                  <td className="text-right font-medium">{rupees(plantCost)}</td>
-                </tr>
-              </tbody>
-            </table>
+            {soloMeter ? (
+              <p className="text-[11.5px] leading-relaxed text-muted-foreground">
+                <code className="normal-case">{mainId}</code> is the only meter shown, so
+                the whole bill — <span className="tnum">{rupees(plantCost)}</span> for{" "}
+                <span className="tnum">{fmt(plantKwh, 0)}</span> kWh — is its own. There
+                are no sub-meters to apportion it across. Unhide or add the sub-meters
+                under it, once their positions are confirmed, to see chargeback here.
+              </p>
+            ) : (
+              <>
+                <DataTable columns={allocColumns} rows={allocRows} filterable={false} initialPageSize={10} exportName="ems_cost_allocation" />
+                {/* Totals are a fixed footer, not sortable data. */}
+                <table className="table table-bordered mt-2 text-[11px] tnum">
+                  <tbody>
+                    <tr>
+                      <td className="text-left text-muted-foreground">Unattributed</td>
+                      <td className="text-right">{fmt(unattributedKwh, 0)}</td>
+                      <td className="text-right">{fmt(unattributedShare * 100, 1)}%</td>
+                      <td className="text-right">
+                        {rupees(plantCost === null ? null : plantCost * unattributedShare)}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="text-left font-medium">
+                        {multiIncomer ? "Plant total (billed)" : `${mainId} (billed)`}
+                      </td>
+                      <td className="text-right font-medium">{fmt(plantKwh, 0)}</td>
+                      <td className="text-right font-medium">100%</td>
+                      <td className="text-right font-medium">{rupees(plantCost)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            )}
           </Panel>
 
           <Panel

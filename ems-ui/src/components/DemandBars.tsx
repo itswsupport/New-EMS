@@ -28,12 +28,15 @@ export default function DemandBars({
   rootIds,
 }: {
   demand: DemandResult;
-  contractKva: number;
+  contractKva: number | null;
   rootIds: string[];
 }) {
   const kva = demand.coincidentKva;
-  const pct = kva === null ? null : (kva / contractKva) * 100;
-  const scaleMax = Math.max(contractKva * 1.15, kva ?? 0, 1);
+  // A meaningful %-of-contract needs a confirmed sanctioned demand. Until one is
+  // entered, show the measured demand only — never a % against a placeholder.
+  const hasContract = contractKva !== null && contractKva > 0;
+  const pct = kva === null || !hasContract ? null : (kva / contractKva!) * 100;
+  const scaleMax = Math.max(hasContract ? contractKva! * 1.15 : 0, kva ?? 0, 1);
   const pos = (v: number) => `${Math.min(100, (v / scaleMax) * 100)}%`;
 
   const tone =
@@ -41,36 +44,43 @@ export default function DemandBars({
     : pct >= 100 ? "var(--bad)"
     : pct >= 85 ? "var(--warn)"
     : "var(--good)";
+  const valueColor = hasContract ? tone : "var(--foreground)";
 
   const sumOfPeaks = demand.perDevice.reduce((a, d) => a + (d.kva ?? 0), 0);
 
   return (
     <>
       <div className="mb-1 flex items-baseline gap-2">
-        <span className="text-[24px] font-medium tnum" style={{ color: tone }}>
+        <span className="text-[24px] font-medium tnum" style={{ color: valueColor }}>
           {fmt(kva, 0)} <span className="text-[12px]">kVA</span>
         </span>
-        <span className="text-[11px] tnum" style={{ color: tone }}>
-          {fmt(pct, 0)}% of {contractKva} kVA contract
+        <span className="text-[11px] tnum" style={{ color: hasContract ? tone : "var(--muted-foreground)" }}>
+          {hasContract
+            ? `${fmt(pct, 0)}% of ${fmt(contractKva, 0)} kVA contract`
+            : "contract demand not set"}
         </span>
       </div>
 
       <div className="relative mb-1.5 h-3.5 overflow-hidden rounded-[3px] bg-secondary">
         <div
           className="absolute inset-y-0 left-0 rounded-r-[3px]"
-          style={{ width: pos(kva ?? 0), background: tone }}
+          style={{ width: pos(kva ?? 0), background: valueColor }}
         />
-        <div
-          className="absolute -top-1 -bottom-1 w-0.5 bg-foreground"
-          style={{ left: pos(contractKva) }}
-        />
+        {hasContract && (
+          <div
+            className="absolute -top-1 -bottom-1 w-0.5 bg-foreground"
+            style={{ left: pos(contractKva!) }}
+          />
+        )}
       </div>
 
       <p className="text-[10.5px] leading-relaxed text-muted-foreground">
         Coincident demand across {rootIds.join(", ")} — the summed load averaged over
         fixed {demand.blockMinutes}-minute clock-aligned blocks, peaking at{" "}
         <b className="font-medium text-foreground">{istBlock(demand.atBlock)} IST</b>.
-        The rule marks the contract.
+        {hasContract
+          ? " The rule marks the contract."
+          : " Enter this plant's sanctioned demand to compare against contract and flag overshoots."}
       </p>
 
       {demand.perDevice.length > 0 && (

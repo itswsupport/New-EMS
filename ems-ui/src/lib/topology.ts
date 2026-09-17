@@ -59,7 +59,9 @@ export type PlantInfo = {
   tenantName: string;
   timezone: string;
   tariffKvah: number;
-  contractKva: number;
+  /** Sanctioned/contract demand (kVA). null = not confirmed for this plant, so
+      the demand chart shows measured kVA without a (meaningless) %-of-contract. */
+  contractKva: number | null;
   demandBlockMin: number;
 };
 
@@ -68,7 +70,9 @@ export type PlantInfo = {
 export const PLANT_DEFAULTS = {
   timezone: "Asia/Kolkata",
   tariffKvah: 10.5,
-  contractKva: 300,
+  // No safe default for a plant's sanctioned demand — it's a per-connection
+  // contractual figure. Unknown until entered, so a comparison isn't shown.
+  contractKva: null as number | null,
   demandBlockMin: 30,
 } as const;
 
@@ -433,7 +437,11 @@ function rowToPlantInfo(r: PlantRow): PlantInfo {
     tenantName: r.tenant_name ?? r.tenant_id,
     timezone: r.timezone ?? PLANT_DEFAULTS.timezone,
     tariffKvah: numOr(r.tariff_kvah, PLANT_DEFAULTS.tariffKvah),
-    contractKva: numOr(r.contract_kva, PLANT_DEFAULTS.contractKva),
+    // Pass a real value through; leave a null column null (not confirmed).
+    contractKva:
+      r.contract_kva === null || !Number.isFinite(Number(r.contract_kva))
+        ? null
+        : Number(r.contract_kva),
     demandBlockMin: r.demand_block_min ?? PLANT_DEFAULTS.demandBlockMin,
   };
 }

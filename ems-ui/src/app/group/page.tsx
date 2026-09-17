@@ -87,13 +87,17 @@ export default async function GroupDashboard() {
       { key: "demand", label: "Peak demand vs contract", align: "right", preserveCase: true },
     ];
     const rows: DataRow[] = rollups.map((r) => {
-      const pct = r.peakKva !== null && r.plant.contractKva > 0
-        ? (r.peakKva / r.plant.contractKva) * 100
-        : null;
+      const contract = r.plant.contractKva;
+      const pct =
+        r.peakKva !== null && contract !== null && contract > 0
+          ? (r.peakKva / contract) * 100
+          : null;
       const demandText =
         r.peakKva === null
           ? "—"
-          : `${fmt(r.peakKva, 0)} / ${fmt(r.plant.contractKva, 0)} kVA${pct === null ? "" : ` (${fmt(pct, 0)}%)`}`;
+          : contract === null
+            ? `${fmt(r.peakKva, 0)} kVA` // sanctioned demand not confirmed
+            : `${fmt(r.peakKva, 0)} / ${fmt(contract, 0)} kVA${pct === null ? "" : ` (${fmt(pct, 0)}%)`}`;
       return {
         plant: textCell(r.plant.name),
         kw: numCell(r.kw, `${fmt(r.kw, 1)} kW`),
