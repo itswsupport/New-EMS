@@ -161,6 +161,36 @@ export function rangeTouchesCorruptWindow(win: Win): boolean {
   return fromTs < CORRUPT_TO && toTs > CORRUPT_FROM;
 }
 
+/* ---- Robust cumulative-energy delta --------------------------------------- *
+ * active_energy is a monotonic Wh counter, but the meters occasionally emit a
+ * spurious low/zero reading; one such glitch makes max(ae)-min(ae) explode by
+ * the whole counter (~8 GWh for a ~200 MWh month). So energy over a window is
+ * the sum of consecutive POSITIVE increments, discarding any above a generous
+ * 10 MW rate over the sample gap (a glitch-down is negative → dropped; its
+ * recovery is impossibly large → dropped). On clean data this equals max-min.
+ *
+ * power_factor has the same glitch class (spurious values > 1), so PF here is
+ * load-weighted sum(P)/sum(P/PF) — robust to outliers — never avg(power_factor).
+ * ------------------------------------------------------------------------- */
+const ENERGY_RATE_CAP_W = 10_000_000; // 10 MW ceiling on a single sample gap
+
+/** CTE `d`: per-row active_energy increment + its time gap, for the given WHERE
+    clause. Callers must bind $1 = device-id array, $2 = plant id. */
+const deltaCte = (clause: string): string => `
+  WITH d AS (
+    SELECT device_id, active_power, power_factor,
+           active_energy - lag(active_energy)
+             OVER (PARTITION BY device_id ORDER BY "timestamp") AS ae_delta,
+           extract(epoch from ("timestamp" - lag("timestamp")
+             OVER (PARTITION BY device_id ORDER BY "timestamp"))) AS ae_dt
+      FROM energy_telemetry
+     WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2 AND active_energy IS NOT NULL
+  )`;
+/** Robust energy (kWh) over CTE `d` — spike-filtered sum of increments. */
+const ROBUST_KWH = `sum(ae_delta) FILTER (WHERE ae_delta >= 0 AND ae_delta <= ${ENERGY_RATE_CAP_W} * ae_dt / 3600.0) / 1000.0`;
+/** Load-weighted power factor — robust to glitchy PF, matches the meter's kVAh. */
+const LW_PF = `sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0)`;
+
 /* --------------------------------------------------------------------------- */
 
 /** `v` is the bucket mean; `lo`/`hi` are the true extremes inside that bucket. */
@@ -266,12 +296,9 @@ export async function plantEnergyKvah(
   if (!rootIds.length) return { kwh: null, kvah: null };
   const { clause } = resolveWin(win);
   const rows = await q<{ kwh: string | number | null; lw_pf: string | number | null }>(
-    `SELECT (max(active_energy) - min(active_energy))/1000.0 AS kwh,
-            sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0) AS lw_pf
-       FROM energy_telemetry
-      WHERE ${clause}
-        AND device_id = ANY($1) AND plant_id = $2
-      GROUP BY device_id`,
+    `${deltaCte(clause)}
+     SELECT ${ROBUST_KWH} AS kwh, ${LW_PF} AS lw_pf
+       FROM d GROUP BY device_id`,
     [rootIds, plantId],
   );
   let kwh = 0;
@@ -514,10 +541,8 @@ export async function distributionFor(
 ): Promise<Distribution> {
   const { clause } = resolveWin(win);
   const rows = await q(
-    `SELECT device_id, (max(active_energy) - min(active_energy))/1000.0 AS kwh
-       FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
-      GROUP BY device_id`,
+    `${deltaCte(clause)}
+     SELECT device_id, ${ROBUST_KWH} AS kwh FROM d GROUP BY device_id`,
     [[nodeId, ...childIds], plantId],
   );
   const kwhOf = (id: string) => num(rows.find((r) => r.device_id === id)?.kwh ?? null);
@@ -567,10 +592,8 @@ export async function incomerBreakdown(
   if (!rootIds.length) return { totalKwh: null, incomers: [] };
   const { clause } = resolveWin(win);
   const rows = await q<{ device_id: string; kwh: string | number | null }>(
-    `SELECT device_id, (max(active_energy) - min(active_energy))/1000.0 AS kwh
-       FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
-      GROUP BY device_id`,
+    `${deltaCte(clause)}
+     SELECT device_id, ${ROBUST_KWH} AS kwh FROM d GROUP BY device_id`,
     [rootIds, plantId],
   );
   const kwhOf = (id: string) => num(rows.find((r) => r.device_id === id)?.kwh ?? null);
@@ -614,17 +637,8 @@ async function windowEnergyKwh(
 ): Promise<{ kwh: number | null; from: Date; to: Date }> {
   if (!rootIds.length) return { kwh: null, from: new Date(0), to: new Date(0) };
   const rows = await q<{ total: string | number | null; wfrom: Date; wto: Date }>(
-    `WITH d AS (
-       SELECT active_energy - lag(active_energy)
-                OVER (PARTITION BY device_id ORDER BY "timestamp") AS delta,
-              extract(epoch from ("timestamp" - lag("timestamp")
-                OVER (PARTITION BY device_id ORDER BY "timestamp"))) AS dt
-         FROM energy_telemetry
-        WHERE "timestamp" >= ${fromSql} AND "timestamp" < ${toSql}
-          AND device_id = ANY($1) AND plant_id = $2 AND active_energy IS NOT NULL)
-     SELECT sum(delta)/1000.0 AS total, ${fromSql} AS wfrom, ${toSql} AS wto
-       FROM d
-      WHERE delta >= 0 AND delta <= 10000000 * dt / 3600.0`,
+    `${deltaCte(`"timestamp" >= ${fromSql} AND "timestamp" < ${toSql}`)}
+     SELECT ${ROBUST_KWH} AS total, ${fromSql} AS wfrom, ${toSql} AS wto FROM d`,
     [rootIds, plantId],
   );
   const r = rows[0]!;
@@ -749,14 +763,10 @@ export async function costByMeter(
   if (!deviceIds.length) return [];
   const { clause } = resolveWin(win);
   const rows = await q(
-    `SELECT device_id,
-            (max(active_energy) - min(active_energy))/1000.0 AS kwh,
-            avg(power_factor) AS pf,
-            (max(active_energy) - min(active_energy))/1000.0
-              / nullif(avg(power_factor), 0) AS kvah
-       FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
-      GROUP BY device_id ORDER BY device_id`,
+    `${deltaCte(clause)}
+     SELECT device_id, ${ROBUST_KWH} AS kwh, ${LW_PF} AS pf,
+            (${ROBUST_KWH}) / nullif(${LW_PF}, 0) AS kvah
+       FROM d GROUP BY device_id ORDER BY device_id`,
     [deviceIds, plantId],
   );
   return rows.map((r) => {
