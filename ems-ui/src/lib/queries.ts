@@ -909,6 +909,73 @@ export async function deviceSnapshots(plantId: string, ids: string[]): Promise<D
   }));
 }
 
+/* ---- Alarm snapshot (per-meter recent state for rule evaluation) ---------- */
+
+export type AlarmSnapshot = {
+  deviceId: string;
+  lastSeen: string | null;
+  /** Seconds since the last reading; null = never reported. */
+  ageSeconds: number | null;
+  recentSamples: number; // rows in the last 5 minutes
+  goodSamples: number; // GOOD-quality rows in the last 5 minutes
+  freq: number | null;
+  vMin: number | null;
+  vMax: number | null;
+  vThdMax: number | null;
+  lwPf: number | null;
+};
+
+/**
+ * One recent snapshot per configured device for the alarm engine: liveness
+ * (age since last reading, over a long lookback so an offline meter still
+ * appears) plus 5-minute smoothed extremes for the power-quality rules.
+ * count(*) FILTER is safe on the hypertable — only count(DISTINCT) FILTER is not.
+ */
+export async function alarmSnapshots(plantId: string, ids: string[]): Promise<AlarmSnapshot[]> {
+  if (!ids.length) return [];
+  const rows = await q(
+    `WITH recent AS (
+        SELECT device_id,
+               avg(frequency) AS freq,
+               min(least(voltage_l1, voltage_l2, voltage_l3)) AS vmin,
+               max(greatest(voltage_l1, voltage_l2, voltage_l3)) AS vmax,
+               max(voltage_thd) AS vthd,
+               sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0) AS lw_pf,
+               count(*) FILTER (WHERE quality = 'GOOD') AS good_n,
+               count(*) AS n
+          FROM energy_telemetry
+         WHERE "timestamp" > now() - interval '5 minutes' AND device_id = ANY($1) AND plant_id = $2
+         GROUP BY device_id
+     ), seen AS (
+        SELECT device_id, max("timestamp") AS last_seen
+          FROM energy_telemetry
+         WHERE "timestamp" > now() - interval '30 days' AND device_id = ANY($1) AND plant_id = $2
+         GROUP BY device_id
+     )
+     SELECT d.id AS device_id, s.last_seen,
+            extract(epoch from (now() - s.last_seen)) AS age_s,
+            r.freq, r.vmin, r.vmax, r.vthd, r.lw_pf,
+            coalesce(r.good_n, 0) AS good_n, coalesce(r.n, 0) AS n
+       FROM unnest($1::text[]) AS d(id)
+       LEFT JOIN recent r ON r.device_id = d.id
+       LEFT JOIN seen s ON s.device_id = d.id
+      ORDER BY d.id`,
+    [ids, plantId],
+  );
+  return rows.map((r) => ({
+    deviceId: String(r.device_id),
+    lastSeen: r.last_seen ? new Date(r.last_seen as Date).toISOString() : null,
+    ageSeconds: num(r.age_s),
+    recentSamples: Number(r.n ?? 0),
+    goodSamples: Number(r.good_n ?? 0),
+    freq: num(r.freq),
+    vMin: num(r.vmin),
+    vMax: num(r.vmax),
+    vThdMax: num(r.vthd),
+    lwPf: num(r.lw_pf),
+  }));
+}
+
 /* ---- Raw reading log (the /data/[meter] Data Table page) ------------------
  *
  * One row per polled sample, straight from energy_telemetry — for auditing a

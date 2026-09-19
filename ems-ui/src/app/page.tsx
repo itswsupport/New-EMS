@@ -1,3 +1,4 @@
+import Link from "next/link";
 import Filters from "@/components/Filters";
 import StatTile from "@/components/StatTile";
 import TimeSeries from "@/components/TimeSeries";
@@ -10,7 +11,9 @@ import EmptyPlant from "@/components/EmptyPlant";
 import { apparentEnergy, energy, fmt, power } from "@/lib/format";
 import { getTopology } from "@/lib/topology";
 import { getSelectedPlant } from "@/lib/plant";
+import { alarmSummary, evaluateAlarms } from "@/lib/alarms";
 import {
+  alarmSnapshots,
   bucketLabel,
   distributionFor,
   energyVsLastMonth,
@@ -80,7 +83,7 @@ export default async function PlantRollup({
     // their hierarchy position is confirmed): nothing to break the energy down against.
     const soloMeter = !multiIncomer && childIds.length === 0;
 
-    const [kw, energyToday, pf, meters, plantSeries, byMeter, breakdown, dist, vsYest, vsMonth, heatmap] =
+    const [kw, energyToday, pf, meters, plantSeries, byMeter, breakdown, dist, vsYest, vsMonth, heatmap, alarmSnaps] =
       await Promise.all([
         plantActivePowerKw(plant, rootIds),
         plantEnergyKvah(plant, rootIds, win),
@@ -93,7 +96,10 @@ export default async function PlantRollup({
         energyVsYesterday(plant, rootIds),
         energyVsLastMonth(plant, rootIds),
         loadHeatmap(plant, rootIds, 14),
+        alarmSnapshots(plant, allIds),
       ]);
+    const alarms = evaluateAlarms(alarmSnaps);
+    const alarmsSum = alarmSummary(alarms);
 
     const p = power(kw);
     const e = apparentEnergy(energyToday.kvah);
@@ -111,6 +117,22 @@ export default async function PlantRollup({
     return (
       <>
         <Filters title="Plant Rollup" range={rangeForUi} warnings={warnings} />
+
+        {alarms.length > 0 && (
+          <Notice kind={alarmsSum.worst === "crit" ? "error" : "warn"}>
+            <span>
+              <strong className="font-medium text-foreground">
+                {alarmsSum.total} active {alarmsSum.total === 1 ? "alarm" : "alarms"}
+                {alarmsSum.crit > 0 ? ` — ${alarmsSum.crit} critical` : ""}.
+              </strong>{" "}
+              {alarms.slice(0, 3).map((a) => `${a.deviceId}: ${a.message}`).join("; ")}
+              {alarms.length > 3 ? ` +${alarms.length - 3} more` : ""}.{" "}
+              <Link href="/alarms" className="text-brand underline">
+                View alarms
+              </Link>
+            </span>
+          </Notice>
+        )}
 
         <Notice>
           {multiIncomer ? (

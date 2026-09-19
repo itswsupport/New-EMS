@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Activity, BadgeIndianRupee, Building2, Gauge, LayoutGrid, Network, Table, Zap } from "lucide-react";
+import { Activity, BadgeIndianRupee, Bell, Building2, Gauge, LayoutGrid, Network, Table, Zap } from "lucide-react";
 import MeterTree, { type TreeNode } from "./MeterTree";
 import PlantSelect from "./PlantSelect";
 import type { PlantInfo } from "@/lib/topology";
 
 const LINKS = [
   { href: "/", label: "Plant Rollup", Icon: Activity },
+  { href: "/alarms", label: "Alarms", Icon: Bell },
   { href: "/cost", label: "Cost & Demand", Icon: BadgeIndianRupee },
   { href: "/power-quality", label: "Power Quality", Icon: Gauge },
   { href: "/overview", label: "Overview", Icon: LayoutGrid },
