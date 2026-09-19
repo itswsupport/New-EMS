@@ -18,7 +18,6 @@ import {
   pfStats,
   plantEnergyKvah,
   rangeTouchesCorruptWindow,
-  reactiveEnergyByMeter,
   winLabel,
   windowFromParams,
   windowParams,
@@ -64,13 +63,12 @@ export default async function CostDemand({
     // Single visible meter, no visible sub-meters: nothing to allocate the bill across.
     const soloMeter = !multiIncomer && childIds.length === 0;
 
-    const [costs, plantEnergy, demand, pf, pfs, reactive] = await Promise.all([
+    const [costs, plantEnergy, demand, pf, pfs] = await Promise.all([
       costByMeter(plant, allIds, win, TARIFF),
       plantEnergyKvah(plant, rootIds, win),
       coincidentMaxDemand(plant, rootIds, win, BLOCK_MIN),
       pfByMeter(plant, allIds, win),
       pfStats(plant, allIds, win),
-      reactiveEnergyByMeter(plant, allIds, win),
     ]);
 
     // The utility bill is the WHOLE plant: the sum of every incomer (root), on
@@ -270,28 +268,6 @@ export default async function CostDemand({
                 </table>
               </>
             )}
-          </Panel>
-
-          <Panel
-            title="Reactive energy counter"
-            note="Unverified register — capacitive, not inductive"
-            span="col-span-12"
-          >
-            <TimeSeries
-              id="reactive"
-              tableHref={`/chart/reactive-energy${winQs ? `?${winQs}` : ""}`}
-              series={reactive}
-              unit="kVArh"
-              decimals={0}
-              height={180}
-              statLabel={bucketLabel(win)}
-              showBand={false}
-            />
-            <p className="mt-2 text-[10.5px] text-muted-foreground">
-              This is a cumulative counter plotted raw, so it reads as flat lines — it
-              is here for traceability, not analysis. It will become useful once the
-              inductive register is identified.
-            </p>
           </Panel>
         </div>
       </>

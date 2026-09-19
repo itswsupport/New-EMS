@@ -124,7 +124,7 @@ export default async function Overview({
             />
           </Panel>
 
-          <Panel title="Reactive power by meter (kVAr)" span="col-span-12 lg:col-span-6">
+          <Panel title="Reactive power by meter (kVAr, derived from kVA & kW)" span="col-span-12 lg:col-span-6">
             <TimeSeries
               id="ov-kvar"
               tableHref={`/chart/reactive-power${winQs ? `?${winQs}` : ""}`}

@@ -399,10 +399,18 @@ export const voltageThdByMeter = (plantId: string, ids: string[], w: Win) =>
 /** Grid frequency (Hz) per meter — should hug 50 Hz; drift flags a supply issue. */
 export const frequencyByMeter = (plantId: string, ids: string[], w: Win) =>
   multi(plantId, "device_id", "frequency", ids, w);
-/** Instantaneous reactive power (kVAr) per meter — the live leg of the power
-    triangle, unlike the (wrong) cumulative reactive_energy counter. */
+/** Reactive power (kVAr) per meter, DERIVED as sqrt(S^2 - P^2) from apparent and
+    active power. The meter's raw reactive_power register reads ~8x low and is
+    inconsistent with the kW/kVA/PF triangle (which is self-consistent), so kVAr
+    is computed from the trustworthy registers instead of read directly. */
 export const reactivePowerByMeter = (plantId: string, ids: string[], w: Win) =>
-  multi(plantId, "device_id", "reactive_power/1000.0", ids, w);
+  multi(
+    plantId,
+    "device_id",
+    "sqrt(greatest(apparent_power*apparent_power - active_power*active_power, 0))/1000.0",
+    ids,
+    w,
+  );
 /** Instantaneous apparent power (kVA) per meter — completes the kW/kVAr/kVA triangle. */
 export const apparentPowerByMeter = (plantId: string, ids: string[], w: Win) =>
   multi(plantId, "device_id", "apparent_power/1000.0", ids, w);
@@ -848,8 +856,6 @@ export async function coincidentMaxDemand(
   };
 }
 
-export const reactiveEnergyByMeter = (plantId: string, ids: string[], w: Win) =>
-  multi(plantId, "device_id", "reactive_energy/1000.0", ids, w);
 
 /* ---- Per-device snapshot (Topology section) ------------------------------- */
 
