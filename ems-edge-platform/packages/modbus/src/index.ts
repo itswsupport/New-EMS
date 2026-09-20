@@ -8,6 +8,7 @@ export * from "./codec.js";
 export * from "./rtu-codec.js";
 export * from "./tcp-codec.js";
 export * from "./frame-decoder.js";
+export * from "./framing.js";
 
 /**
  * Factory (Strategy selection). One codec instance PER CONNECTION — the TCP

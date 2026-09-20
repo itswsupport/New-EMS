@@ -1,6 +1,6 @@
 import type { Socket } from "node:net";
 import { TimeoutError, type ConnectionId } from "@ems/common";
-import { FrameDecoder } from "@ems/modbus";
+import { FrameDecoder, frameLength, type ModbusFraming } from "@ems/modbus";
 import type { Logger } from "@ems/logger";
 import type { Transactor } from "./types.js";
 
@@ -25,15 +25,17 @@ export class Connection implements Transactor {
   readonly remoteAddress: string;
   readonly #socket: Socket;
   readonly #log: Logger;
+  readonly #framing: ModbusFraming;
   readonly #decoder = new FrameDecoder();
   #pending: Pending | null = null;
   #destroyed = false;
 
-  constructor(socket: Socket, connectionId: ConnectionId, log: Logger) {
+  constructor(socket: Socket, connectionId: ConnectionId, log: Logger, framing: ModbusFraming) {
     this.#socket = socket;
     this.connectionId = connectionId;
     this.remoteAddress = `${socket.remoteAddress ?? "?"}:${socket.remotePort ?? 0}`;
     this.#log = log;
+    this.#framing = framing;
     this.#log.debug({ remote: this.remoteAddress }, "connection wrapper initialised");
 
     socket.on("data", (chunk) => this.#onData(chunk));
@@ -66,8 +68,13 @@ export class Connection implements Transactor {
     this.#decoder.push(chunk);
     const p = this.#pending;
     if (!p) return; // unsolicited data (or between transactions) — buffered/ignored
-    const frame = this.#decoder.takeFrame(p.expectedLength);
-    if (!frame) return; // still waiting for the rest of the frame
+    // Frame by expectation, but complete EARLY on a short exception response
+    // (fc | 0x80) — otherwise a legitimate Modbus exception never reaches the
+    // expected data length and times out. null = still waiting.
+    const len = frameLength(this.#framing, this.#decoder.peek(), p.expectedLength);
+    if (len === null) return;
+    const frame = this.#decoder.takeFrame(len);
+    if (!frame) return; // defensive: len ≤ buffered, so this should not happen
     clearTimeout(p.timer);
     this.#pending = null;
     p.resolve(frame);

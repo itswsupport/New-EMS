@@ -5,7 +5,7 @@ import type { PipelineHooks } from "@ems/gateway-listener";
 import type { ResolvedDevice } from "@ems/config";
 import type { TelemetryRecord } from "@ems/telemetry";
 import { createLogger } from "@ems/logger";
-import { buildFloatResponse } from "../helpers/modbus-frame.js";
+import { buildExceptionResponse, buildFloatResponse } from "../helpers/modbus-frame.js";
 
 const log = createLogger({ level: "silent", service: "test" });
 const noopHooks: PipelineHooks = {
@@ -52,6 +52,35 @@ describe("GatewayServer TCP listener (client-initiated, like the X5050)", () => 
     await waitFor(() => produced.length >= 1, 3000);
     expect(produced[0]?.voltage).toBeCloseTo(230.5, 2);
     expect(server.activeConnections()).toBe(1);
+  });
+
+  it("frames and parses a short Modbus exception instead of timing out", async () => {
+    let exceptions = 0;
+    const hooks: PipelineHooks = { ...noopHooks, onModbusException: () => void exceptions++ };
+    const port = 45_197;
+
+    server = new GatewayServer(
+      { host: "127.0.0.1", port, maxConnections: 4, connectionTimeoutMs: 5000,
+        rateLimitPerMin: 100, intervalMs: 10_000, timeoutMs: 1000, maxRetries: 1,
+        slaveFailThreshold: 3, slaveCooldownCycles: 20, framing: "rtu" },
+      { devices: [device], sink: async () => {}, hooks, log, onOpen: () => {}, onClose: () => {} },
+    );
+    await server.listen();
+
+    // Gateway answers every FC03 read with a 5-byte RTU exception. That is SHORTER
+    // than the 9-byte data response the poller frames by expectation, so without
+    // exception-aware framing this would time out (1000ms) and never parse — this
+    // assertion only passes because the short frame now completes and decodes.
+    await new Promise<void>((resolve, reject) => {
+      client = connect(port, "127.0.0.1", () => resolve());
+      client.on("error", reject);
+      client.on("data", () => {
+        client!.write(Buffer.from(buildExceptionResponse(7, 0x02)));
+      });
+    });
+
+    await waitFor(() => exceptions >= 1, 3000);
+    expect(exceptions).toBeGreaterThanOrEqual(1);
   });
 });
 

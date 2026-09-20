@@ -41,6 +41,12 @@ export class FrameDecoder {
     return this.#buffer.length;
   }
 
+  /** Read-only copy of the buffered bytes — for frame-length / exception detection
+      by the caller before deciding how many bytes to take. */
+  peek(): Uint8Array {
+    return Uint8Array.from(this.#buffer);
+  }
+
   /** Drop buffered bytes — used to resync after a protocol error. */
   reset(): void {
     this.#buffer = new Uint8Array(0);

@@ -79,7 +79,7 @@ export class GatewayServer {
       this.#teardown(connectionId, "timeout");
     });
 
-    const conn = new Connection(socket, connectionId, connLog);
+    const conn = new Connection(socket, connectionId, connLog, this.opts.framing);
     // One codec per connection — the TCP codec holds a transaction counter.
     const poller = new DevicePoller(
       conn,

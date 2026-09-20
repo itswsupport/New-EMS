@@ -21,3 +21,9 @@ export function buildReadResponse(slave: number, registerBytes: Uint8Array): Uin
 export function buildFloatResponse(slave: number, value: number): Uint8Array {
   return buildReadResponse(slave, float32ToRegisters(value));
 }
+
+/** Build an RTU exception response: [slave][fc|0x80][code][crcLo][crcHi] (5 bytes).
+    Always SHORTER than any data response, so it exercises exception-aware framing. */
+export function buildExceptionResponse(slave: number, code = 0x02): Uint8Array {
+  return appendCrc(new Uint8Array([slave, 0x03 | 0x80, code]));
+}
