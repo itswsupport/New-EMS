@@ -100,6 +100,15 @@ export class DevicePoller {
   readonly #failures = new Map<number, number>();
   readonly #coolingUntil = new Map<number, number>();
 
+  // Per-REGISTER breaker (same thresholds, keyed "slave:address"). A single
+  // register that fails `slaveFailThreshold` cycles running is skipped — its
+  // metric reads null, no bus cost — until re-probed after `slaveCooldownCycles`.
+  // So a partially-dead meter (one bad/unmapped register → UNCERTAIN) can't pay
+  // retries*timeout on that register every cycle while its good registers keep
+  // polling fast; the per-slave breaker only catches a fully-dead meter.
+  readonly #regFailures = new Map<string, number>();
+  readonly #regCoolingUntil = new Map<string, number>();
+
   constructor(
     private readonly transactor: Transactor,
     private readonly codec: ModbusCodec,
@@ -155,9 +164,18 @@ export class DevicePoller {
 
   /** Poll one device. Returns true if it produced usable data (quality != BAD). */
   async #pollDevice(device: ResolvedDevice): Promise<boolean> {
-    const readings: MetricReading[] = device.batch
-      ? await this.#readBlocks(device)
-      : await this.#readEach(device.slave, device.registers);
+    // Read only the registers not in per-register cooldown; cooled ones read
+    // null (skipped this cycle, re-probed when their cooldown expires).
+    const active = device.registers.filter((r) => !this.#regCooling(device.slave, r.address));
+    const readings: MetricReading[] = active.length
+      ? device.batch
+        ? await this.#readBlocks(device, active)
+        : await this.#readEach(device.slave, active)
+      : [];
+    for (const reg of device.registers) {
+      if (this.#regCooling(device.slave, reg.address)) readings.push({ metric: reg.metric, value: null });
+    }
+    this.#updateRegisterBreakers(device, active, readings);
 
     const record = mapReadingsToRecord(
       { deviceId: device.id, tenantId: device.tenant, plantId: device.plant },
@@ -207,9 +225,52 @@ export class DevicePoller {
     }
   }
 
+  #regCooling(slave: number, address: number): boolean {
+    return this.#cycleCount < (this.#regCoolingUntil.get(`${slave}:${address}`) ?? 0);
+  }
+
+  /**
+   * Per-register circuit breaker, updated from this cycle's active reads. Mirrors
+   * the per-slave one at register granularity: a register whose value comes back
+   * null (unreadable or undecodable) for `slaveFailThreshold` cycles running is
+   * cooled and skipped; a good read resets it. A null value that is due to the
+   * register being skipped is not re-counted (only `active` registers are seen).
+   */
+  #updateRegisterBreakers(
+    device: ResolvedDevice,
+    active: readonly ResolvedRegister[],
+    readings: readonly MetricReading[],
+  ): void {
+    const byMetric = new Map(readings.map((r) => [r.metric, r.value]));
+    for (const reg of active) {
+      const key = `${device.slave}:${reg.address}`;
+      const value = byMetric.get(reg.metric);
+      if (value === null || value === undefined) {
+        const failures = (this.#regFailures.get(key) ?? 0) + 1;
+        this.#regFailures.set(key, failures);
+        if (failures >= this.opts.slaveFailThreshold) {
+          const wasCooling = this.#regCoolingUntil.has(key);
+          this.#regCoolingUntil.set(key, this.#cycleCount + 1 + this.opts.slaveCooldownCycles);
+          if (!wasCooling) {
+            this.log.warn(
+              { slave: device.slave, device_id: device.id, address: reg.address, metric: reg.metric, failures },
+              "register returning no data — cooling down (other registers keep polling)",
+            );
+          }
+        }
+      } else if (this.#regFailures.has(key) || this.#regCoolingUntil.has(key)) {
+        this.#regFailures.delete(key);
+        this.#regCoolingUntil.delete(key);
+      }
+    }
+  }
+
   /** One request per contiguous block, falling back to per-register on failure. */
-  async #readBlocks(device: ResolvedDevice): Promise<MetricReading[]> {
-    const blocks = planReadBlocks(device.registers, this.opts.maxRegisterGap ?? 0);
+  async #readBlocks(
+    device: ResolvedDevice,
+    registers: readonly ResolvedRegister[],
+  ): Promise<MetricReading[]> {
+    const blocks = planReadBlocks(registers, this.opts.maxRegisterGap ?? 0);
     const readings: MetricReading[] = [];
 
     for (const block of blocks) {

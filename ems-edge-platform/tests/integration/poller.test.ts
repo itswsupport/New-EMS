@@ -57,4 +57,38 @@ describe("DevicePoller (transport-isolated end-to-end decode)", () => {
     expect(rec.voltage).toBeCloseTo(230.5, 2);
     expect(rec.current).toBeCloseTo(4.2, 2);
   });
+
+  it("cools a chronically-failing register while the others keep polling", async () => {
+    // voltage@0 always answers; current@6 always fails. Count reads per address.
+    const calls = new Map<number, number>();
+    const transactor: Transactor = {
+      connectionId: "conn_test",
+      remoteAddress: "127.0.0.1:0",
+      async transact(request: Uint8Array): Promise<Uint8Array> {
+        const address = (request[2]! << 8) | request[3]!;
+        calls.set(address, (calls.get(address) ?? 0) + 1);
+        if (address === 6) throw new Error("simulated dead register");
+        return buildFloatResponse(7, 230.5);
+      },
+    };
+    const perReg: ResolvedDevice = { ...device, batch: false };
+    const poller = new DevicePoller(
+      transactor, createModbusCodec("rtu"), [perReg],
+      async () => {}, noopHooks, log,
+      { intervalMs: 5, timeoutMs: 200, maxRetries: 1, slaveFailThreshold: 3, slaveCooldownCycles: 50 },
+    );
+
+    poller.start();
+    await new Promise((r) => setTimeout(r, 300)); // ~dozens of 5ms cycles
+    poller.stop();
+
+    const good = calls.get(0) ?? 0;
+    const bad = calls.get(6) ?? 0;
+    // The good register keeps polling every cycle; the bad one is skipped after
+    // ~slaveFailThreshold cycles (x2 attempts each) and then cooled, so it's read
+    // far fewer times — a dead register no longer stalls the cycle forever.
+    expect(good).toBeGreaterThan(10);
+    expect(bad).toBeLessThan(good);
+    expect(bad).toBeLessThanOrEqual((3 + 1) * 2); // threshold cycles * (maxRetries+1)
+  });
 });
