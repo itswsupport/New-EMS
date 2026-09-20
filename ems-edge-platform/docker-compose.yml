@@ -18,6 +18,12 @@ networks:
 volumes:
   pgdata:
     name: ems-pgdata
+  # Durable home for the dead-letter file (DB_DEAD_LETTER_PATH=/app/logs/…). Without
+  # this the app's /app/logs is ephemeral, so a `docker compose up` after any image/
+  # config change wipes batches that had survived retries during a DB outage —
+  # silent, permanent data loss. Replay with scripts/replay-dead-letter.ts.
+  deadletter:
+    name: ems-deadletter
 
 secrets:
   db_password:
@@ -95,6 +101,8 @@ services:
       # with just an app restart — no image rebuild. The image still bakes a
       # copy as the default; this overlay wins when present.
       - ./config/devices.yaml:/app/config/devices.yaml:ro
+      # Persist the dead-letter file across container recreation (see volume note).
+      - deadletter:/app/logs
     ports:
       # HOST_IP : HOST_PORT : CONTAINER_PORT
       #
