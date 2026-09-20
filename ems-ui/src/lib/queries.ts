@@ -735,7 +735,9 @@ export async function loadHeatmap(
   const n = Math.max(1, Math.min(60, Math.floor(days)));
   const rows = await q<{ ist_date: string; hod: number; kw: string | number | null }>(
     `SELECT ist_date, hod, sum(avg_kw) AS kw FROM (
-        SELECT ("timestamp" AT TIME ZONE 'Asia/Kolkata')::date AS ist_date,
+        -- as text 'YYYY-MM-DD' (not ::date): node-postgres parses a date column to
+        -- a JS Date, whose String() is not ISO, so the label read "INVALID DATE".
+        SELECT to_char("timestamp" AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS ist_date,
                extract(hour from ("timestamp" AT TIME ZONE 'Asia/Kolkata'))::int AS hod,
                device_id, avg(active_power)/1000.0 AS avg_kw
           FROM energy_telemetry
