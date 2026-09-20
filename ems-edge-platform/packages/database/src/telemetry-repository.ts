@@ -56,7 +56,11 @@ export class PrismaTelemetryRepository implements TelemetryRepository {
         maximumDemand: r.maximumDemand,
         quality: r.quality,
       })),
-      skipDuplicates: false,
+      // ON CONFLICT DO NOTHING on the (device_id, timestamp) unique index: a
+      // retried batch after a lost ack re-inserts the same readings harmlessly
+      // instead of duplicating them. result.count is the rows actually written
+      // (a full re-insert of an already-persisted batch returns 0).
+      skipDuplicates: true,
     });
     return result.count;
   }

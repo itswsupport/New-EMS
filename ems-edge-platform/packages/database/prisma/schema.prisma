@@ -68,7 +68,10 @@ model EnergyTelemetry {
   // Composite PK includes the partition column so the table can become a
   // TimescaleDB hypertable (migration 0006). `id` stays sequence-backed.
   @@id([id, timestamp])
-  @@index([deviceId, timestamp], name: "idx_telemetry_device_ts")
+  // Idempotency key: blocks duplicate rows from a retried batch (see migration
+  // 0007). Also serves the (device_id, timestamp) read axis, replacing the old
+  // non-unique idx_telemetry_device_ts.
+  @@unique([deviceId, timestamp], map: "energy_telemetry_device_id_timestamp_key")
   @@index([tenantId, timestamp], name: "idx_telemetry_tenant_ts")
   @@index([plantId, timestamp], name: "idx_telemetry_plant_ts")
   @@index([plantId, deviceId, timestamp], name: "idx_telemetry_plant_device_ts")
