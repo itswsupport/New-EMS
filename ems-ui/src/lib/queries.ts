@@ -957,6 +957,7 @@ export type AlarmSnapshot = {
   ageSeconds: number | null;
   recentSamples: number; // rows in the last 5 minutes
   goodSamples: number; // GOOD-quality rows in the last 5 minutes
+  badSamples: number; // BAD-quality (all-null) rows in the last 5 minutes
   freq: number | null;
   vMin: number | null;
   vMax: number | null;
@@ -989,6 +990,7 @@ export async function alarmSnapshots(plantId: string, ids: string[]): Promise<Al
                sum(active_power) FILTER (WHERE power_factor BETWEEN 0 AND 1.05)
                  / nullif(sum(active_power / nullif(power_factor, 0)) FILTER (WHERE power_factor BETWEEN 0 AND 1.05), 0) AS lw_pf,
                count(*) FILTER (WHERE quality = 'GOOD') AS good_n,
+               count(*) FILTER (WHERE quality = 'BAD') AS bad_n,
                count(*) AS n
           FROM energy_telemetry
          WHERE "timestamp" > now() - interval '5 minutes' AND device_id = ANY($1) AND plant_id = $2
@@ -1002,7 +1004,7 @@ export async function alarmSnapshots(plantId: string, ids: string[]): Promise<Al
      SELECT d.id AS device_id, s.last_seen,
             extract(epoch from (now() - s.last_seen)) AS age_s,
             r.freq, r.vmin, r.vmax, r.vthd, r.lw_pf,
-            coalesce(r.good_n, 0) AS good_n, coalesce(r.n, 0) AS n
+            coalesce(r.good_n, 0) AS good_n, coalesce(r.bad_n, 0) AS bad_n, coalesce(r.n, 0) AS n
        FROM unnest($1::text[]) AS d(id)
        LEFT JOIN recent r ON r.device_id = d.id
        LEFT JOIN seen s ON s.device_id = d.id
@@ -1015,6 +1017,7 @@ export async function alarmSnapshots(plantId: string, ids: string[]): Promise<Al
     ageSeconds: num(r.age_s),
     recentSamples: Number(r.n ?? 0),
     goodSamples: Number(r.good_n ?? 0),
+    badSamples: Number(r.bad_n ?? 0),
     freq: num(r.freq),
     vMin: num(r.vmin),
     vMax: num(r.vmax),

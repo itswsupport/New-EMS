@@ -79,7 +79,10 @@ export function evaluateAlarms(snaps: AlarmSnapshot[], limits = ALARM_LIMITS): A
       });
       continue;
     }
-    if (s.recentSamples > 0 && s.goodSamples === 0) {
+    // Truly dead-but-connected: EVERY recent row is BAD (all metrics null). A
+    // partially-failing meter (some registers null → UNCERTAIN) is NOT this — it
+    // still returns usable data — so it must not raise this critical.
+    if (s.recentSamples > 0 && s.badSamples === s.recentSamples) {
       out.push({
         id: `${s.deviceId}:no-data`,
         severity: "crit",
@@ -88,6 +91,18 @@ export function evaluateAlarms(snaps: AlarmSnapshot[], limits = ALARM_LIMITS): A
         message: "Connected but returning no valid data",
       });
       continue;
+    }
+    // All recent rows UNCERTAIN (no fully-good sample, but not all-BAD): a
+    // register is failing while the rest report. A warning, not a critical; the
+    // decoded metrics below can still breach their own limits, so fall through.
+    if (s.recentSamples > 0 && s.goodSamples === 0) {
+      out.push({
+        id: `${s.deviceId}:degraded`,
+        severity: "warn",
+        deviceId: s.deviceId,
+        kind: "degraded",
+        message: "Degraded — some registers not reporting (partial data)",
+      });
     }
 
     if (s.lwPf !== null && s.lwPf < limits.pfMin) {
