@@ -88,7 +88,7 @@ export default async function PlantRollup({
         plantActivePowerKw(plant, rootIds),
         plantEnergyKvah(plant, rootIds, win),
         plantPowerFactor(plant, rootIds),
-        metersOnline(plant, allIds),
+        metersOnline(plant, topo.pollableIds),
         plantPowerSeries(plant, rootIds, win),
         powerByMeter(plant, allIds, win),
         incomerBreakdown(plant, rootIds, win),
@@ -96,7 +96,7 @@ export default async function PlantRollup({
         energyVsYesterday(plant, rootIds),
         energyVsLastMonth(plant, rootIds),
         loadHeatmap(plant, rootIds, 14),
-        alarmSnapshots(plant, allIds),
+        alarmSnapshots(plant, topo.pollableIds),
       ]);
     const alarms = evaluateAlarms(alarmSnaps);
     const alarmsSum = alarmSummary(alarms);

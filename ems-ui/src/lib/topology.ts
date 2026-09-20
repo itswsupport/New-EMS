@@ -40,6 +40,9 @@ export type Topology = {
   roots: MeterNode[];
   rootIds: string[];
   allIds: string[];
+  /** Real meters that can report (excludes virtual/group nodes). Use this for
+      liveness — metersOnline / alarms — so a virtual node never shows "offline". */
+  pollableIds: string[];
   parentOf(id: string): MeterNode | null;
   childrenOf(id: string): MeterNode[];
   descendantsOf(id: string): MeterNode[];
@@ -267,6 +270,7 @@ function buildTopology(entries: Map<string, Entry>): Topology {
     roots,
     rootIds: roots.map((n) => n.id),
     allIds: nodes.map((n) => n.id),
+    pollableIds: nodes.filter((n) => !n.isVirtual).map((n) => n.id),
     parentOf: (id) => (byId.get(id)?.parentId ? byId.get(byId.get(id)!.parentId!) ?? null : null),
     childrenOf,
     descendantsOf,
@@ -378,7 +382,14 @@ export async function getTopology(plantId?: string): Promise<Topology> {
   const nodes = topo.nodes.filter((n) => n.plantId === plantId);
   const ids = new Set(nodes.map((n) => n.id));
   const roots = nodes.filter((n) => n.parentId === null || !ids.has(n.parentId));
-  return { ...topo, nodes, roots, rootIds: roots.map((n) => n.id), allIds: nodes.map((n) => n.id) };
+  return {
+    ...topo,
+    nodes,
+    roots,
+    rootIds: roots.map((n) => n.id),
+    allIds: nodes.map((n) => n.id),
+    pollableIds: nodes.filter((n) => !n.isVirtual).map((n) => n.id),
+  };
 }
 
 /** Plant ids that have at least one device in the registry — i.e. real, set-up

@@ -72,12 +72,23 @@ function istShort(d: Date): string {
   });
 }
 
+/** UTC instant of the start of today in IST (UTC+5:30) — matches the SQL "today"
+    lower bound, so the corrupt-window overlap test uses the same anchor the query
+    does, not a naive now−24h (which is up to 5.5h too early). */
+function istDayStartTs(): Date {
+  const shift = 5.5 * 3600_000;
+  const ist = new Date(Date.now() + shift);
+  ist.setUTCHours(0, 0, 0, 0);
+  return new Date(ist.getTime() - shift);
+}
+
 /** Resolve a Win to its SQL clause, bucket and display metadata. */
 export function resolveWin(win: Win): ResolvedWin {
   if (typeof win === "string") {
     const r = RANGES[win];
     const toTs = new Date();
-    const fromTs = new Date(toTs.getTime() - RANGE_HOURS[win] * 3600_000);
+    const fromTs =
+      win === "today" ? istDayStartTs() : new Date(toTs.getTime() - RANGE_HOURS[win] * 3600_000);
     return {
       clause: `"timestamp" >= ${r.from}`,
       bucket: r.bucket as number,
@@ -190,6 +201,18 @@ const deltaCte = (clause: string): string => `
 const ROBUST_KWH = `sum(ae_delta) FILTER (WHERE ae_delta >= 0 AND ae_delta <= ${ENERGY_RATE_CAP_W} * ae_dt / 3600.0) / 1000.0`;
 /** Load-weighted power factor — robust to glitchy PF, matches the meter's kVAh. */
 const LW_PF = `sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0)`;
+/** Physically-valid PF band. The meters emit glitch PF readings (≤0 or up to
+    ~235,000); real PF is 0 < pf ≤ 1. Wrap a raw-PF column so out-of-band samples
+    become NULL and are ignored by avg/min/max on the display charts + stats. */
+const pfClamp = (col: string): string => `(CASE WHEN ${col} > 0 AND ${col} <= 1.05 THEN ${col} END)`;
+/** Physical sanity band. The edge validator range-checks only a few fields, so
+    glitches in THD / frequency / voltage (e.g. voltage_thd 493,487%, frequency
+    243,634 Hz, V 1e38) are stored with a non-BAD quality and survive a quality
+    filter. Wrap the column so values outside [lo,hi] become NULL and drop out of
+    chart/alarm aggregates. Bands are generous — they catch only the astronomical
+    glitches, never a real reading. */
+const sane = (col: string, lo: number, hi: number): string =>
+  `(CASE WHEN ${col} BETWEEN ${lo} AND ${hi} THEN ${col} END)`;
 
 /* --------------------------------------------------------------------------- */
 
@@ -228,7 +251,7 @@ async function multi(
             min(${valueExpr}) AS lo,
             max(${valueExpr}) AS hi
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
+      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2 AND quality <> 'BAD'
       GROUP BY 1, 2
       ORDER BY 1, 2`,
     [deviceIds, plantId],
@@ -263,21 +286,6 @@ export async function plantActivePowerKw(plantId: string, rootIds: string[]): Pr
     [rootIds, plantId],
   );
   return num(r?.kw);
-}
-
-export async function plantEnergyTodayKwh(plantId: string, rootIds: string[]): Promise<number | null> {
-  if (!rootIds.length) return null;
-  const [r] = await q(
-    `SELECT sum(d)/1000.0 AS kwh
-       FROM (SELECT max(active_energy) - min(active_energy) AS d
-               FROM energy_telemetry
-              WHERE "timestamp" >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata')
-                                   AT TIME ZONE 'Asia/Kolkata'
-                AND device_id = ANY($1) AND plant_id = $2
-              GROUP BY device_id) s`,
-    [rootIds, plantId],
-  );
-  return num(r?.kwh);
 }
 
 /**
@@ -388,17 +396,17 @@ export const powerByMeter = (plantId: string, ids: string[], w: Win) =>
 /* ---- Overview and power quality ------------------------------------------ */
 
 export const pfByMeter = (plantId: string, ids: string[], w: Win) =>
-  multi(plantId, "device_id", "power_factor", ids, w);
+  multi(plantId, "device_id", pfClamp("power_factor"), ids, w);
 export const voltageByMeter = (plantId: string, ids: string[], w: Win) =>
-  multi(plantId, "device_id", "voltage", ids, w);
+  multi(plantId, "device_id", sane("voltage", 0, 1000), ids, w);
 export const currentThdByMeter = (plantId: string, ids: string[], w: Win) =>
-  multi(plantId, "device_id", "current_thd", ids, w);
+  multi(plantId, "device_id", sane("current_thd", 0, 1000), ids, w);
 export const voltageThdByMeter = (plantId: string, ids: string[], w: Win) =>
-  multi(plantId, "device_id", "voltage_thd", ids, w);
+  multi(plantId, "device_id", sane("voltage_thd", 0, 100), ids, w);
 
 /** Grid frequency (Hz) per meter — should hug 50 Hz; drift flags a supply issue. */
 export const frequencyByMeter = (plantId: string, ids: string[], w: Win) =>
-  multi(plantId, "device_id", "frequency", ids, w);
+  multi(plantId, "device_id", sane("frequency", 40, 70), ids, w);
 /** Reactive power (kVAr) per meter, DERIVED as sqrt(S^2 - P^2) from apparent and
     active power. The meter's raw reactive_power register reads ~8x low and is
     inconsistent with the kW/kVA/PF triangle (which is self-consistent), so kVAr
@@ -419,8 +427,12 @@ export const voltageImbalance = (plantId: string, ids: string[], w: Win) =>
   multi(
     plantId,
     "device_id",
-    `(greatest(voltage_l1,voltage_l2,voltage_l3) - least(voltage_l1,voltage_l2,voltage_l3))
+    sane(
+      `(greatest(voltage_l1,voltage_l2,voltage_l3) - least(voltage_l1,voltage_l2,voltage_l3))
        / nullif((voltage_l1+voltage_l2+voltage_l3)/3.0, 0) * 100`,
+      0,
+      1000,
+    ),
     ids,
     w,
   );
@@ -429,8 +441,12 @@ export const currentImbalance = (plantId: string, ids: string[], w: Win) =>
   multi(
     plantId,
     "device_id",
-    `(greatest(current_l1,current_l2,current_l3) - least(current_l1,current_l2,current_l3))
+    sane(
+      `(greatest(current_l1,current_l2,current_l3) - least(current_l1,current_l2,current_l3))
        / nullif((current_l1+current_l2+current_l3)/3.0, 0) * 100`,
+      0,
+      1000,
+    ),
     ids,
     w,
   );
@@ -448,7 +464,7 @@ async function perPhase(
             avg(${cols[1]}) AS l2, min(${cols[1]}) AS l2lo, max(${cols[1]}) AS l2hi,
             avg(${cols[2]}) AS l3, min(${cols[2]}) AS l3lo, max(${cols[2]}) AS l3hi
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = $1 AND plant_id = $2
+      WHERE ${clause} AND device_id = $1 AND plant_id = $2 AND quality <> 'BAD'
       GROUP BY 1 ORDER BY 1`,
     [meter, plantId],
   );
@@ -467,15 +483,15 @@ async function perPhase(
 }
 
 export const perPhaseVoltage = (plantId: string, w: Win, m: string) =>
-  perPhase(plantId, ["voltage_l1", "voltage_l2", "voltage_l3"], w, m);
+  perPhase(plantId, [sane("voltage_l1", 0, 1000), sane("voltage_l2", 0, 1000), sane("voltage_l3", 0, 1000)], w, m);
 export const perPhaseCurrent = (plantId: string, w: Win, m: string) =>
-  perPhase(plantId, ["current_l1", "current_l2", "current_l3"], w, m);
+  perPhase(plantId, [sane("current_l1", 0, 100000), sane("current_l2", 0, 100000), sane("current_l3", 0, 100000)], w, m);
 /** Per-phase active power (kW) — reveals load balance across L1/L2/L3. */
 export const perPhaseActivePower = (plantId: string, w: Win, m: string) =>
   perPhase(plantId, ["active_power_l1/1000.0", "active_power_l2/1000.0", "active_power_l3/1000.0"], w, m);
 /** Per-phase power factor — a single bad phase can drag the whole meter's PF. */
 export const perPhasePowerFactor = (plantId: string, w: Win, m: string) =>
-  perPhase(plantId, ["power_factor_l1", "power_factor_l2", "power_factor_l3"], w, m);
+  perPhase(plantId, [pfClamp("power_factor_l1"), pfClamp("power_factor_l2"), pfClamp("power_factor_l3")], w, m);
 
 /**
  * Downside statistics for power factor. A chart about penalty risk should report
@@ -500,7 +516,8 @@ export async function pfStats(
     `SELECT device_id, min(power_factor) AS lo, avg(power_factor) AS mean,
             100.0 * count(*) FILTER (WHERE power_factor < $2) / nullif(count(*),0) AS pct_below
        FROM energy_telemetry
-      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $3 AND power_factor IS NOT NULL
+      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $3
+        AND power_factor > 0 AND power_factor <= 1.05
       GROUP BY device_id ORDER BY device_id`,
     [deviceIds, threshold, plantId],
   );
@@ -806,7 +823,11 @@ export type DemandResult = {
  * overstates demand. And it does not read the meter's `maximum_demand` register,
  * which is a latched lifetime peak that ignores the selected range entirely.
  *
- * kVA is derived as kW / PF for consistency with how kVAh is computed elsewhere.
+ * Block kVA is the measured apparent_power register, sanity-clamped. It equals
+ * avg(active_power/PF) on clean data (validated to ~0.05%), but that per-sample
+ * form (and the algebraically-identical load-weighted PF) explodes on a low-PF
+ * glitch and would win this DESC-ordered peak — a bogus billing-grade demand.
+ * apparent_power carries no PF division, so it can't be poisoned that way.
  */
 export async function coincidentMaxDemand(
   plantId: string,
@@ -827,7 +848,7 @@ export async function coincidentMaxDemand(
   const blocks = `
     SELECT to_timestamp(floor(extract(epoch from "timestamp") / ${secs}) * ${secs}) AS blk,
            device_id,
-           avg(active_power / nullif(power_factor, 0))/1000.0 AS kva
+           avg(${sane("apparent_power", 0, 1000000000)})/1000.0 AS kva
       FROM energy_telemetry
      WHERE ${clause} AND device_id = ANY($1) AND plant_id = $2
      GROUP BY 1, 2`;
@@ -885,13 +906,25 @@ export async function deviceSnapshots(plantId: string, ids: string[]): Promise<D
          WHERE "timestamp" > now() - interval '7 days' AND device_id = ANY($1) AND plant_id = $2
          ORDER BY device_id, "timestamp" DESC
      ), today AS (
+        -- Robust energy: spike-filtered sum of positive active_energy increments,
+        -- NOT max-min (a single spurious low/0 reading would otherwise inflate it
+        -- to the whole counter, ~8 GWh). Matches the shared ROBUST_KWH method.
         SELECT device_id,
-               max(active_energy) - min(active_energy) AS wh,
+               sum(ae_delta) FILTER (
+                 WHERE ae_delta >= 0 AND ae_delta <= ${ENERGY_RATE_CAP_W} * ae_dt / 3600.0
+               ) AS wh,
                count(*) AS samples
-          FROM energy_telemetry
-         WHERE device_id = ANY($1) AND plant_id = $2
-           AND "timestamp" >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata')
-                              AT TIME ZONE 'Asia/Kolkata'
+          FROM (
+            SELECT device_id,
+                   active_energy - lag(active_energy)
+                     OVER (PARTITION BY device_id ORDER BY "timestamp") AS ae_delta,
+                   extract(epoch from ("timestamp" - lag("timestamp")
+                     OVER (PARTITION BY device_id ORDER BY "timestamp"))) AS ae_dt
+              FROM energy_telemetry
+             WHERE device_id = ANY($1) AND plant_id = $2
+               AND "timestamp" >= date_trunc('day', now() AT TIME ZONE 'Asia/Kolkata')
+                                  AT TIME ZONE 'Asia/Kolkata'
+          ) e
          GROUP BY device_id
      )
      SELECT d.id AS device_id, l."timestamp" AS last_seen,
@@ -942,11 +975,19 @@ export async function alarmSnapshots(plantId: string, ids: string[]): Promise<Al
   const rows = await q(
     `WITH recent AS (
         SELECT device_id,
-               avg(frequency) AS freq,
-               min(least(voltage_l1, voltage_l2, voltage_l3)) AS vmin,
-               max(greatest(voltage_l1, voltage_l2, voltage_l3)) AS vmax,
-               max(voltage_thd) AS vthd,
-               sum(active_power) / nullif(sum(active_power / nullif(power_factor, 0)), 0) AS lw_pf,
+               -- PQ extremes from PHYSICALLY-SANE samples only. The edge doesn't
+               -- range-check THD/frequency, so a glitch (voltage_thd 493,487% or
+               -- frequency 243,634 Hz) is stored non-BAD and would otherwise fire a
+               -- false alarm; a quality filter can't catch it. good_n/n stay over
+               -- all rows for the "connected but no valid data" rule.
+               avg(frequency) FILTER (WHERE frequency BETWEEN 40 AND 70) AS freq,
+               min(least(voltage_l1, voltage_l2, voltage_l3))
+                 FILTER (WHERE least(voltage_l1, voltage_l2, voltage_l3) BETWEEN 0 AND 1000) AS vmin,
+               max(greatest(voltage_l1, voltage_l2, voltage_l3))
+                 FILTER (WHERE greatest(voltage_l1, voltage_l2, voltage_l3) BETWEEN 0 AND 1000) AS vmax,
+               max(voltage_thd) FILTER (WHERE voltage_thd BETWEEN 0 AND 100) AS vthd,
+               sum(active_power) FILTER (WHERE power_factor BETWEEN 0 AND 1.05)
+                 / nullif(sum(active_power / nullif(power_factor, 0)) FILTER (WHERE power_factor BETWEEN 0 AND 1.05), 0) AS lw_pf,
                count(*) FILTER (WHERE quality = 'GOOD') AS good_n,
                count(*) AS n
           FROM energy_telemetry
@@ -1014,7 +1055,7 @@ export const RAW_COLUMNS: readonly RawColumn[] = [
   { key: "current", col: "current", label: "A", unit: "A", kind: "num", decimals: 1 },
   { key: "active_power", col: "active_power", label: "kW", unit: "kW", kind: "num", scale: 0.001, decimals: 2 },
   { key: "apparent_power", col: "apparent_power", label: "kVA", unit: "kVA", kind: "num", scale: 0.001, decimals: 2 },
-  { key: "reactive_power", col: "reactive_power", label: "kVAr", unit: "kVAr", kind: "num", scale: 0.001, decimals: 2 },
+  { key: "reactive_power", col: "reactive_power", label: "kVAr (raw reg)", unit: "kVAr", kind: "num", scale: 0.001, decimals: 2 },
   { key: "power_factor", col: "power_factor", label: "PF", unit: "", kind: "num", decimals: 3 },
   { key: "frequency", col: "frequency", label: "Freq", unit: "Hz", kind: "num", decimals: 2 },
   { key: "active_energy", col: "active_energy", label: "Energy", unit: "kWh", kind: "num", scale: 0.001, decimals: 1 },

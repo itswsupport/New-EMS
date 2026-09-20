@@ -42,7 +42,7 @@ export default async function AlarmsPage() {
       );
     }
 
-    const snaps = await alarmSnapshots(plant, topo.allIds);
+    const snaps = await alarmSnapshots(plant, topo.pollableIds);
     const alarms = evaluateAlarms(snaps);
     const sum = alarmSummary(alarms);
 
@@ -67,8 +67,8 @@ export default async function AlarmsPage() {
           />
           <StatTile
             label="Meters monitored"
-            value={String(topo.allIds.length)}
-            sub="Visible meters in this plant"
+            value={String(topo.pollableIds.length)}
+            sub="Real (non-virtual) meters in this plant"
           />
           <StatTile
             label="Evaluation"
@@ -80,8 +80,8 @@ export default async function AlarmsPage() {
             {alarms.length === 0 ? (
               <div className="flex items-center gap-2.5 py-2 text-[12.5px] text-foreground">
                 <CircleCheck size={16} strokeWidth={2} style={{ color: "var(--good)" }} />
-                All clear — no active alarms across {topo.allIds.length}{" "}
-                {topo.allIds.length === 1 ? "meter" : "meters"}.
+                All clear — no active alarms across {topo.pollableIds.length}{" "}
+                {topo.pollableIds.length === 1 ? "meter" : "meters"}.
               </div>
             ) : (
               alarms.map((a) => <AlarmRow key={a.id} a={a} />)

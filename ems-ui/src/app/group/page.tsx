@@ -33,7 +33,7 @@ async function rollupFor(plant: PlantInfo): Promise<PlantRollup> {
     plantActivePowerKw(plant.id, topo.rootIds),
     plantEnergyKvah(plant.id, topo.rootIds, "today"),
     plantPowerFactor(plant.id, topo.allIds),
-    metersOnline(plant.id, topo.allIds),
+    metersOnline(plant.id, topo.pollableIds),
     coincidentMaxDemand(plant.id, topo.rootIds, "today", plant.demandBlockMin),
   ]);
   return {
