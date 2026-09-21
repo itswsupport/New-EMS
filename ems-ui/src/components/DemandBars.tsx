@@ -46,8 +46,6 @@ export default function DemandBars({
     : "var(--good)";
   const valueColor = hasContract ? tone : "var(--foreground)";
 
-  const sumOfPeaks = demand.perDevice.reduce((a, d) => a + (d.kva ?? 0), 0);
-
   return (
     <>
       <div className="mb-1 flex items-baseline gap-2">
@@ -74,13 +72,9 @@ export default function DemandBars({
         )}
       </div>
 
-      <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-        Coincident demand across {rootIds.join(", ")} — the summed load averaged over
-        fixed {demand.blockMinutes}-minute clock-aligned blocks, peaking at{" "}
-        <b className="font-medium text-foreground">{istBlock(demand.atBlock)} IST</b>.
-        {hasContract
-          ? " The rule marks the contract."
-          : " Enter this plant's sanctioned demand to compare against contract and flag overshoots."}
+      <p className="text-[10.5px] text-muted-foreground">
+        Peak block <b className="font-medium text-foreground">{istBlock(demand.atBlock)} IST</b>.
+        {!hasContract && " Set the sanctioned demand to compare against contract."}
       </p>
 
       {demand.perDevice.length > 0 && (
@@ -101,11 +95,6 @@ export default function DemandBars({
               ))}
             </tbody>
           </table>
-          <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-            These sum to {fmt(sumOfPeaks, 0)} kVA, above the coincident{" "}
-            {fmt(kva, 0)} kVA, because the peaks do not happen at the same moment.
-            The coincident figure is the one that bills.
-          </p>
         </div>
       )}
     </>

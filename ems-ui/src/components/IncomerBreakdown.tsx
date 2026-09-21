@@ -48,17 +48,6 @@ export default function IncomerBreakdown({
         </div>
       ))}
 
-      <p className="mt-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
-        {data.incomers.length > 1 ? (
-          <>
-            This plant has {data.incomers.length} independent utility incomers. Each bar is
-            one incomer&apos;s share of total plant energy; their feeds don&apos;t overlap,
-            so the plant total is their sum. Compared on energy, not instantaneous power.
-          </>
-        ) : (
-          <>A single utility incomer carries the whole plant&apos;s energy.</>
-        )}
-      </p>
     </>
   );
 }

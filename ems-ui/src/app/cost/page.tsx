@@ -222,12 +222,6 @@ export default async function CostDemand({
             <div className="mt-3">
               <DataTable columns={pfColumns} rows={pfRows} filterable={false} initialPageSize={10} exportName="ems_power_factor" />
             </div>
-            <p className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground">
-              0.90 is an engineering reference, not a billing threshold — under kVAh
-              billing a poor power factor is already priced as inflated kVAh rather
-              than a separate penalty line. Minimum and time-below matter here;
-              a maximum does not.
-            </p>
           </Panel>
 
           <Panel

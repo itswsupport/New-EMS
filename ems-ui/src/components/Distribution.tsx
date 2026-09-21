@@ -72,20 +72,12 @@ export default function Distribution({
         </div>
       ))}
 
-      <p className="mt-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
-        {negative ? (
-          <span className="text-bad">
-            Sub-meters exceed the incomer, which is not physically possible — check the
-            declared hierarchy or a CT ratio.
-          </span>
-        ) : (
-          <>
-            Unattributed is distribution loss plus any load on {dist.nodeId} that no
-            sub-meter sees. Compared on energy, not instantaneous power, because poll
-            skew between meters makes minute-level ratios unreliable.
-          </>
-        )}
-      </p>
+      {negative && (
+        <p className="mt-2.5 text-[10.5px] leading-relaxed text-bad">
+          Sub-meters exceed the incomer, which is not physically possible — check the
+          declared hierarchy or a CT ratio.
+        </p>
+      )}
     </>
   );
 }
