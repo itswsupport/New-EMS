@@ -23,7 +23,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL_FILE: /run/secrets/database_url
+      # The UI connects as the least-privilege ems_reader role (SELECT + device
+      # writes only, NOT superuser) via its OWN secret — never the edge writer's
+      # database_url. See packages/database/prisma/sql/reader-role.sql. Create
+      # ./secrets/database_url_ui.txt =
+      #   postgres://ems_reader:<pw>@postgres:5432/ems
+      DATABASE_URL_FILE: /run/secrets/database_url_ui
       # Meter topology comes from the same register map the poller uses, so the
       # two can never disagree about which meter feeds which.
       DEVICES_YAML: /app/config/devices.yaml
@@ -32,7 +37,7 @@ services:
       NEXT_PUBLIC_DEMAND_BLOCK_MINUTES: ${DEMAND_BLOCK_MINUTES:-30}
       NODE_ENV: production
     secrets:
-      - database_url
+      - database_url_ui
     volumes:
       # Read-only, mirroring how the app service mounts it (docker-compose.yml).
       - ./config/devices.yaml:/app/config/devices.yaml:ro
@@ -46,3 +51,10 @@ services:
         limits:
           cpus: "1.0"
           memory: 512m
+
+# The UI's own DB credential (least-privilege ems_reader), separate from the edge
+# writer's `database_url` secret. Create the file before deploying, or the UI
+# container won't start (missing secret). It is gitignored like the others.
+secrets:
+  database_url_ui:
+    file: ./secrets/database_url_ui.txt
